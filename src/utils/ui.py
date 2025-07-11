@@ -9,10 +9,11 @@ from PySide6.QtWidgets import (
     QLabel, QWidget, QHBoxLayout, QSizePolicy, QKeySequenceEdit
 )
 from PySide6.QtCore import Qt, QObject, Signal
-from PySide6.QtGui import QKeySequence, QKeyEvent
+from PySide6.QtGui import QKeySequence, QKeyEvent, QFontDatabase, QFont
 
 # Local import
 from src.utils.logger import logger
+from src.utils.lang import tr
 
 def validate_numerical_input(input_str: str, error_label: QLabel,
                               val_lowest: float, val_highest: float):
@@ -23,7 +24,7 @@ def validate_numerical_input(input_str: str, error_label: QLabel,
         error_label.setVisible(False)
         return True
     except ValueError:
-        error_label.setText(f"Please enter number between {val_lowest} and {val_highest}.")
+        error_label.setText(tr("Please enter number between {val_lowest} and {val_highest}.").format(val_lowest=val_lowest, val_highest=val_highest))
         error_label.setVisible(True)
         logger.debug(f"Invalid numerical input: {input_str}")
         return False
@@ -59,7 +60,7 @@ def clear_debug_canvas(canvas):
     Flush the debug window viz canvas
     '''
     canvas.clear()
-    canvas.setText("Press start or 'F1' to start AutoBot")
+    canvas.setText(tr("Press start or 'F1' to start AutoBot"))
     canvas.setAlignment(Qt.AlignCenter)
 
 class SingleKeyEdit(QKeySequenceEdit):
@@ -105,3 +106,22 @@ class QtLogHandler(logging.Handler, QObject):
     def emit(self, record):
         msg = self.format(record)
         self.log_signal.emit(msg, record.levelno)
+
+def apply_chinese_font(app):
+    '''
+    Set application font to one that supports Chinese characters if available.
+    '''
+    candidates = [
+        "Microsoft JhengHei",  # Windows Traditional Chinese
+        "Microsoft YaHei",     # Windows Simplified Chinese
+        "PingFang TC",         # macOS Traditional Chinese
+        "PingFang SC",         # macOS Simplified Chinese
+        "SimHei",              # Generic fallback
+        "Noto Sans CJK SC",
+        "WenQuanYi Zen Hei",
+    ]
+    db = QFontDatabase()
+    for name in candidates:
+        if name in db.families():
+            app.setFont(QFont(name))
+            break

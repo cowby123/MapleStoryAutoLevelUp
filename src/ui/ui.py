@@ -18,6 +18,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QTextCharFormat, QColor, QTextCursor, QPixmap, QImage
 from PySide6.QtCore import Qt, Signal
 
+from src.utils.ui import apply_chinese_font
+from src.utils.lang import tr
+
 # Local import
 from src.utils.logger import logger
 from src.utils.ui import (
@@ -53,7 +56,7 @@ class MainWindow(QMainWindow):
         self.data = load_yaml("config/config_data.yaml")
 
         # Window Settings
-        self.setWindowTitle("MapleStory AutoLevelUp")
+        self.setWindowTitle(tr("MapleStory AutoLevelUp"))
         self.setMinimumSize(500, 800)
         self.resize(500, 800) # Set a default starting size
 
@@ -65,10 +68,10 @@ class MainWindow(QMainWindow):
         self.tab_route_map_viz = self.setup_route_map_viz_tab()
 
         # Add tabs to tab widget
-        self.tabs.addTab(self.tab_main, "Main")
-        self.tabs.addTab(self.tab_advance_setting, "Advanced Settings")
-        self.tabs.addTab(self.tab_game_window_viz, "Game Window Viz")
-        self.tabs.addTab(self.tab_route_map_viz, "Route Map Viz")
+        self.tabs.addTab(self.tab_main, tr("Main"))
+        self.tabs.addTab(self.tab_advance_setting, tr("Advanced Settings"))
+        self.tabs.addTab(self.tab_game_window_viz, tr("Game Window Viz"))
+        self.tabs.addTab(self.tab_route_map_viz, tr("Route Map Viz"))
 
         # Change tabs signals
         self.tabs.currentChanged.connect(self.on_tab_changed)
@@ -140,8 +143,7 @@ class MainWindow(QMainWindow):
         tab_advance_setting = QWidget()
         layout = QVBoxLayout()
 
-        label = QLabel("🚧 Work in Progress\n"
-                       "Edit config/config_default.yaml to modify advance settings")
+        label = QLabel(tr("🚧 Work in Progress\nEdit config/config_default.yaml to modify advance settings"))
         label.setAlignment(Qt.AlignCenter)
         layout.addWidget(label)
 
@@ -199,30 +201,31 @@ class MainWindow(QMainWindow):
         '''
         Create attack group box using two-column QFormLayouts
         '''
-        gbox = QGroupBox("⚔️ Attack Settings")
+        gbox = QGroupBox(tr("⚔️ Attack Settings"))
 
         # Left column
         form_left = QFormLayout()
         self.attack_mode = QComboBox()
-        self.attack_mode.addItems(["Basic", "AOE Skill"])
+        self.attack_mode.addItem(tr("Basic"), "Basic")
+        self.attack_mode.addItem(tr("AOE Skill"), "AOE Skill")
         self.attack_mode.setFixedWidth(100)
 
         # Set default value
-        form_left.addRow("Attack Mode:", self.attack_mode)
+        form_left.addRow(tr("Attack Mode:"), self.attack_mode)
 
         self.attack_range_x = QLineEdit()
         self.attack_range_x.setFixedWidth(60)
-        form_left.addRow("Range X:", self.attack_range_x)
+        form_left.addRow(tr("Range X:"), self.attack_range_x)
 
         # Right column
         form_right = QFormLayout()
         self.attack_cooldown = QLineEdit()
         self.attack_cooldown.setFixedWidth(60)
-        form_right.addRow("Cooldown (s):", self.attack_cooldown)
+        form_right.addRow(tr("Cooldown (s):"), self.attack_cooldown)
 
         self.attack_range_y = QLineEdit()
         self.attack_range_y.setFixedWidth(60)
-        form_right.addRow("Range Y:", self.attack_range_y)
+        form_right.addRow(tr("Range Y:"), self.attack_range_y)
 
         # Combine left and right forms
         columns = QHBoxLayout()
@@ -247,36 +250,36 @@ class MainWindow(QMainWindow):
         return gbox
 
     def create_key_binding_gbox(self):
-        gbox = QGroupBox("🎮 Key Bindings")
+        gbox = QGroupBox(tr("🎮 Key Bindings"))
         hbox = QHBoxLayout()
 
         # Left Column
         form_left = QFormLayout()
         self.basic_attack_key = SingleKeyEdit()
         self.basic_attack_key.setFixedWidth(100)
-        form_left.addRow("Basic Attack:", self.basic_attack_key)
+        form_left.addRow(tr("Basic Attack:"), self.basic_attack_key)
 
         self.teleport_key = SingleKeyEdit()
         self.teleport_key.setFixedWidth(100)
-        form_left.addRow("Teleport:", self.teleport_key)
+        form_left.addRow(tr("Teleport:"), self.teleport_key)
 
         self.party_key = SingleKeyEdit()
         self.party_key.setFixedWidth(100)
-        form_left.addRow("Party:", self.party_key)
+        form_left.addRow(tr("Party:"), self.party_key)
 
         # Right Column
         form_right = QFormLayout()
         self.aoe_skill_key = SingleKeyEdit()
         self.aoe_skill_key.setFixedWidth(100)
-        form_right.addRow("AOE Skill:", self.aoe_skill_key)
+        form_right.addRow(tr("AOE Skill:"), self.aoe_skill_key)
 
         self.jump_key = SingleKeyEdit()
         self.jump_key.setFixedWidth(100)
-        form_right.addRow("Jump:", self.jump_key)
+        form_right.addRow(tr("Jump:"), self.jump_key)
 
         self.return_home_key = SingleKeyEdit()
         self.return_home_key.setFixedWidth(100)
-        form_right.addRow("Home:", self.return_home_key)
+        form_right.addRow(tr("Home:"), self.return_home_key)
 
         # Combine left and right column form
         hbox.addLayout(form_left)
@@ -297,7 +300,7 @@ class MainWindow(QMainWindow):
         container.setLayout(layout)
 
         # Auto Buff checkbox
-        self.checkbox_enable_buff = QCheckBox("Auto Buff")
+        self.checkbox_enable_buff = QCheckBox(tr("Auto Buff"))
         self.checkbox_enable_buff.stateChanged.connect(self.toggle_auto_buff)
         layout.addWidget(self.checkbox_enable_buff, alignment=Qt.AlignLeft)
 
@@ -322,7 +325,7 @@ class MainWindow(QMainWindow):
         # Add dynamic row layout + button
         buff_section_layout.addLayout(self.buff_layout)
 
-        self.button_add_buff = QPushButton("+ Add Buff Key")
+        self.button_add_buff = QPushButton(tr("+ Add Buff Key"))
         self.button_add_buff.setFixedWidth(100)
         self.button_add_buff.clicked.connect(self.add_buff_row)
         buff_section_layout.addWidget(self.button_add_buff, alignment=Qt.AlignLeft)
@@ -332,12 +335,12 @@ class MainWindow(QMainWindow):
         return container
 
     def create_pet_skill_gbox(self):
-        gbox = QGroupBox("❤️ Pet Skills")
+        gbox = QGroupBox(tr("❤️ Pet Skills"))
         layout_form = QFormLayout()
 
         # Auto Add HP checkbox
         hp_row = QHBoxLayout()
-        self.checkbox_auto_add_hp = QCheckBox("Auto Add HP")
+        self.checkbox_auto_add_hp = QCheckBox(tr("Auto Add HP"))
         self.checkbox_auto_add_hp.stateChanged.connect(self.toggle_auto_add_hp)
         hp_row.addWidget(self.checkbox_auto_add_hp)
         # Auto Add HP settings
@@ -354,7 +357,7 @@ class MainWindow(QMainWindow):
 
         # Auto add MP checkbox
         mp_row = QHBoxLayout()
-        self.checkbox_auto_add_mp = QCheckBox("Auto Add MP")
+        self.checkbox_auto_add_mp = QCheckBox(tr("Auto Add MP"))
         self.checkbox_auto_add_mp.stateChanged.connect(self.toggle_auto_add_mp)
         mp_row.addWidget(self.checkbox_auto_add_mp)
         # Auto Add MPHP settings
@@ -379,7 +382,7 @@ class MainWindow(QMainWindow):
         '''
         Creates a group box containing the scroll list for map selection
         '''
-        gbox = QGroupBox("🗺️ Map")
+        gbox = QGroupBox(tr("🗺️ Map"))
 
         # Load map list from directory
         self.list_widget_maps = QListWidget()
@@ -400,14 +403,14 @@ class MainWindow(QMainWindow):
                     self.list_widget_maps.addItem(item)
 
         layout = QVBoxLayout()
-        self.label_map_info = QLabel("Please select a map:")
+        self.label_map_info = QLabel(tr("Please select a map:"))
         layout.addWidget(self.label_map_info)
         layout.addWidget(self.list_widget_maps)
         gbox.setLayout(layout)
         return gbox
 
     def create_log_gbox(self):
-        gbox = QGroupBox("📜 Log")
+        gbox = QGroupBox(tr("📜 Log"))
         layout = QVBoxLayout()
 
         self.log_output = QPlainTextEdit()
@@ -432,7 +435,7 @@ class MainWindow(QMainWindow):
         '''
         Creates a group box with hotkey instructions and a dropdown to select mode
         '''
-        gbox = QGroupBox("🕹️ Bot Control")
+        gbox = QGroupBox(tr("🕹️ Bot Control"))
         layout = QVBoxLayout()
         layout.setSpacing(6)
 
@@ -444,11 +447,11 @@ class MainWindow(QMainWindow):
         load_config_layout.setSpacing(8)
         load_config_layout.setAlignment(Qt.AlignLeft)
 
-        self.button_load_config = QPushButton("📂 Load Config")
+        self.button_load_config = QPushButton(tr("📂 Load Config"))
         self.button_load_config.clicked.connect(
             lambda: self.load_config(self.load_config_error_label)
         )
-        self.label_config_path = QLabel("(No config loaded)")
+        self.label_config_path = QLabel(tr("(No config loaded)"))
 
         load_config_layout.addWidget(self.button_load_config)
         load_config_layout.addWidget(self.label_config_path)
@@ -459,16 +462,16 @@ class MainWindow(QMainWindow):
         button_layout.setAlignment(Qt.AlignLeft)
 
         # Start / Pause Button
-        self.button_start_pause = QPushButton("▶ Start (F1)")
+        self.button_start_pause = QPushButton(tr("▶ Start (F1)"))
         self.button_start_pause.setCheckable(True)
         self.button_start_pause.clicked.connect(self.toggle_start_ui)
 
         # Screenshot Button
-        self.button_screenshot = QPushButton("📸 Screenshot (F2)")
+        self.button_screenshot = QPushButton(tr("📸 Screenshot (F2)"))
         self.button_screenshot.clicked.connect(self.toggle_screenshot_ui)
 
         # Record Button
-        self.button_record = QPushButton("⏺ Record (F3)")
+        self.button_record = QPushButton(tr("⏺ Record (F3)"))
         self.button_record.setCheckable(True)
         self.button_record.clicked.connect(self.toggle_record_ui)
 
@@ -476,9 +479,11 @@ class MainWindow(QMainWindow):
         layout_bot_mode = QHBoxLayout()
         layout_bot_mode.setSpacing(8)
         self.bot_mode = QComboBox()
-        self.bot_mode.addItems(["normal", "aux", "patrol"])
+        self.bot_mode.addItem(tr("normal"), "normal")
+        self.bot_mode.addItem(tr("aux"), "aux")
+        self.bot_mode.addItem(tr("patrol"), "patrol")
 
-        layout_bot_mode.addWidget(QLabel("Bot Mode:"))
+        layout_bot_mode.addWidget(QLabel(tr("Bot Mode:")))
         layout_bot_mode.addWidget(self.bot_mode)
         layout_bot_mode.setAlignment(Qt.AlignLeft)
 
@@ -500,27 +505,27 @@ class MainWindow(QMainWindow):
         '''
         layout_main = QHBoxLayout()
 
-        layout_main.addWidget(QLabel("Attack Key:"))
+        layout_main.addWidget(QLabel(tr("Attack Key:")))
         key_input = SingleKeyEdit()
         key_input.setFixedWidth(100)
         layout_main.addWidget(key_input)
 
         # Horizontal Range
-        layout_main.addWidget(QLabel("Range X:"))
+        layout_main.addWidget(QLabel(tr("Range X:")))
         range_x = QLineEdit()
         range_x.setPlaceholderText("50")
         range_x.setFixedWidth(60)
         layout_main.addWidget(range_x)
 
         # Vertical Range
-        layout_main.addWidget(QLabel("Range Y:"))
+        layout_main.addWidget(QLabel(tr("Range Y:")))
         range_y = QLineEdit()
         range_y.setPlaceholderText("50")
         range_y.setFixedWidth(60)
         layout_main.addWidget(range_y)
 
         # CoolDown
-        layout_main.addWidget(QLabel("CoolDown (s):"))
+        layout_main.addWidget(QLabel(tr("CoolDown (s):")))
         cooldown = QLineEdit()
         cooldown.setPlaceholderText("0.1")
         cooldown.setFixedWidth(60)
@@ -546,20 +551,20 @@ class MainWindow(QMainWindow):
         input_layout.setSpacing(2)
         input_layout.setAlignment(Qt.AlignLeft)
 
-        label_1 = QLabel(f"When {title} is below:")
+        label_1 = QLabel(tr("When {title} is below:").format(title=title))
         label_1.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
         percent = QLineEdit()
         percent.setPlaceholderText("50")
         percent.setFixedWidth(60)
 
-        label_2 = QLabel("%, press ")
+        label_2 = QLabel(tr("%, press "))
         label_2.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
         input_key = SingleKeyEdit()
         input_key.setFixedWidth(100)
 
-        label_3 = QLabel("key.")
+        label_3 = QLabel(tr("key."))
         label_3.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
         # Add to layout
@@ -580,21 +585,21 @@ class MainWindow(QMainWindow):
         '''
         if path is None:
             path, _ = QFileDialog.getOpenFileName(
-                self, "Select Config File", "", "YAML Files (*.yaml);;All Files (*)"
+                self, tr("Select Config File"), "", tr("YAML Files (*.yaml);;All Files (*)")
             )
             if not path:
                 return  # User canceled
 
         # Validation
         if not path.endswith(".yaml"):
-            error_label.setText("Only .yaml files are supported.")
+            error_label.setText(tr("Only .yaml files are supported."))
             error_label.setVisible(True)
             return
 
         # Validate the file name
         if "config_default.yaml" in path or "config_data.yaml" in path or \
            "config_macOS.yaml" in path:
-            error_label.setText(f"{path} cannot be loaded as customized yaml")
+            error_label.setText(tr("{path} cannot be loaded as customized yaml").format(path=path))
             error_label.setVisible(True)
             return
 
@@ -722,7 +727,7 @@ class MainWindow(QMainWindow):
         self.selected_map = map_name
 
         map_path = os.path.join("minimaps", map_name)
-        self.label_map_info.setText(f"Selected map: {map_path}")
+        self.label_map_info.setText(tr("Selected map: {map_path}").format(map_path=map_path))
 
     def on_mode_checkbox_toggle(self, toggled_checkbox):
         '''
@@ -782,7 +787,7 @@ class MainWindow(QMainWindow):
             ret = self.controller.start_bot(cfg_path)
 
             if ret == 0: # Start success
-                self.button_start_pause.setText("⏸ Pause (F1)")
+                self.button_start_pause.setText(tr("⏸ Pause (F1)"))
                 self.button_start_pause.setStyleSheet("background-color: lightgreen;")
                 self.set_gbox_enabled(False)
             else:
@@ -790,7 +795,7 @@ class MainWindow(QMainWindow):
                 self.button_start_pause.setChecked(False)
 
         else: # When pause autobot
-            self.button_start_pause.setText("▶ Start (F1)")
+            self.button_start_pause.setText(tr("▶ Start (F1)"))
             self.button_start_pause.setStyleSheet("")
             self.controller.pause_bot()
             self.set_gbox_enabled(True)
@@ -802,11 +807,11 @@ class MainWindow(QMainWindow):
 
     def toggle_record_ui(self):
         if self.button_record.isChecked():
-            self.button_record.setText("⏹ Stop (F3)")
+            self.button_record.setText(tr("⏹ Stop (F3)"))
             self.button_record.setStyleSheet("background-color: orange;")
             self.controller.start_recording()
         else:
-            self.button_record.setText("⏺ Record (F3)")
+            self.button_record.setText(tr("⏺ Record (F3)"))
             self.button_record.setStyleSheet("")
             self.controller.stop_recording()
 
@@ -815,15 +820,15 @@ class MainWindow(QMainWindow):
         Collect setting from UI framework
         '''
         # Bot control gbox
-        self.cfg["bot"]["mode"] = self.bot_mode.currentText()
+        self.cfg["bot"]["mode"] = self.bot_mode.currentData()
         # Attack setting gbox
-        if self.attack_mode.currentText() == "Basic":
+        if self.attack_mode.currentData() == "Basic":
             self.cfg["bot"]["attack"] = "directional"
             self.cfg["key"]["directional_attack"] = self.basic_attack_key.get_key()
             self.cfg["directional_attack"]["range_x"] = int(self.attack_range_x.text())
             self.cfg["directional_attack"]["range_y"] = int(self.attack_range_y.text())
             self.cfg["directional_attack"]["cooldown"] = float(self.attack_cooldown.text())
-        elif self.attack_mode.currentText() == "AOE Skill":
+        elif self.attack_mode.currentData() == "AOE Skill":
             self.cfg["bot"]["attack"] = "aoe_skill"
             self.cfg["key"]["aoe_skill"] = self.basic_attack_key.get_key()
             self.cfg["aoe_skill"]["range_x"] = int(self.attack_range_x.text())
@@ -904,7 +909,7 @@ class MainWindow(QMainWindow):
         row_layout.setSpacing(4)  # Tight spacing
 
         # Buff Key
-        label_1 = QLabel("Press")
+        label_1 = QLabel(tr("Press"))
         label_1.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
         key_edit = SingleKeyEdit()
@@ -917,7 +922,7 @@ class MainWindow(QMainWindow):
         row_layout.addWidget(key_edit)
 
         # Cooldown
-        label_cd = QLabel("key, for every ")
+        label_cd = QLabel(tr("key, for every "))
         label_cd.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
         cooldown_edit = QLineEdit()
@@ -926,7 +931,7 @@ class MainWindow(QMainWindow):
         cooldown_edit.setFixedWidth(60)
         cooldown_edit.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
 
-        label_second = QLabel("seconds.")
+        label_second = QLabel(tr("seconds."))
         label_second.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
         row_layout.addWidget(label_cd)
@@ -1006,7 +1011,16 @@ class MainWindow(QMainWindow):
         event.accept()  # Continue with the close
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--lang', default='en', choices=['en', 'zh'])
+    args, unknown = parser.parse_known_args()
+
     app = QApplication(sys.argv)
+    apply_chinese_font(app)
+    from src.utils.lang import set_language
+    set_language(args.lang)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
