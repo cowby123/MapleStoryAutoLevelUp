@@ -9,7 +9,10 @@ channel_change:
   mode: 'true'
 directional_attack:
   cooldown: 0.3
-  range_x: 100
+  range_x: 200
+  range_y: 100
+health_monitor:
+  add_hp_percent: 20
 key:
   add_hp: end
   add_mp: del
