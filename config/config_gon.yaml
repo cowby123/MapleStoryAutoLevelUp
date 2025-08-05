@@ -1,0 +1,30 @@
+bot:
+  map: garden_of_green_2
+buff_skill:
+  cooldown:
+  - 80
+  - 110
+  - 61
+  - 600
+  keys:
+  - a
+  - x
+  - f
+  - '1'
+channel_change:
+  mode: 'true'
+directional_attack:
+  cooldown: 0.15
+  range_x: 300
+key:
+  add_hp: end
+  add_mp: del
+  directional_attack: z
+  jump: alt
+  teleport: z
+minimap:
+  offset:
+  - 0
+  - 2
+system:
+  fps_limit_main: 30
