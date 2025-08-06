@@ -1,0 +1,33 @@
+bot:
+  map: cloud_balcony
+buff_skill:
+  cooldown:
+  - 150
+  - 140
+  - 61
+  - 600
+  keys:
+  - a
+  - x
+  - f
+  - '1'
+channel_change:
+  mode: 'true'
+directional_attack:
+  cooldown: 0.15
+  range_x: 300
+  range_y: 100
+health_monitor:
+  add_hp_percent: 20
+key:
+  add_hp: end
+  add_mp: del
+  directional_attack: z
+  jump: alt
+  teleport: z
+minimap:
+  offset:
+  - 0
+  - 2
+system:
+  fps_limit_main: 30
