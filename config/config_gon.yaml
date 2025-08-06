@@ -16,6 +16,9 @@ channel_change:
 directional_attack:
   cooldown: 0.15
   range_x: 300
+health_monitor:
+  add_hp_percent: 40
+  add_mp_percent: 10
 key:
   add_hp: end
   add_mp: del
@@ -27,4 +30,5 @@ minimap:
   - 0
   - 2
 system:
+  fps_limit_keyboard_controller: 10
   fps_limit_main: 30
