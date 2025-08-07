@@ -1253,8 +1253,8 @@ class MapleStoryAutoBot:
 
             time.sleep(3)
         logger.info(f"login_button button found: {loc_login_button}")
-        if loc_login_button is None:
-            while loc_login_button is None and not self.is_terminated:
+        if loc_login_button == None:
+            while loc_login_button is None:
                 try:
                     self.img_frame = self.get_img_frame()
                     loc_login_button = self.get_login_button_location()
