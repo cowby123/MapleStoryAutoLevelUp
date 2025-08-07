@@ -1,0 +1,39 @@
+aoe_skill:
+  range_x: 300
+bot:
+  attack: aoe_skill
+  map: the_path_of_time_1_for_mage
+buff_skill:
+  cooldown:
+  - 80
+  - 110
+  - 61
+  - 600
+  keys:
+  - a
+  - x
+  - f
+  - '1'
+channel_change:
+  enable: true
+  mode: 'true'
+directional_attack:
+  cooldown: 0.2
+  range_x: 300
+health_monitor:
+  add_hp_percent: 40
+  add_mp_percent: 10
+key:
+  add_hp: end
+  add_mp: del
+  aoe_skill: z
+  directional_attack: z
+  jump: alt
+  teleport: x
+minimap:
+  offset:
+  - 1
+  - 0
+system:
+  fps_limit_keyboard_controller: 10
+  fps_limit_main: 30
