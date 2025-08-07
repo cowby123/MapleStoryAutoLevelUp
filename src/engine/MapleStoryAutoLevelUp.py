@@ -1253,7 +1253,21 @@ class MapleStoryAutoBot:
 
             time.sleep(3)
         logger.info(f"login_button button found: {loc_login_button}")
+        if loc_login_button is None:
+            while loc_login_button is None and not self.is_terminated:
+                try:
+                    self.img_frame = self.get_img_frame()
+                    loc_login_button = self.get_login_button_location()
+                    if loc_login_button is None:
+                        logger.info("Waiting for login button to show up...")
+                except Exception as e:
+                    logger.warning(f"Exception occurred while waiting for login button: {e}")
+                    if not is_mac():
+                        resize_window(window_title, width=1296, height=759)
+                    logger.info("Retrying login button detection...")
 
+                time.sleep(3)
+        logger.info(f"login_button button found: {loc_login_button}")
         time.sleep(3)  # wait the screen to be brighter
 
         # Click login button
