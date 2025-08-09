@@ -1,7 +1,4 @@
-aoe_skill:
-  range_x: 300
 bot:
-  attack: aoe_skill
   map: garden_of_green_2
 buff_skill:
   cooldown:
@@ -15,7 +12,6 @@ buff_skill:
   - f
   - '1'
 channel_change:
-  enable: true
   mode: 'true'
 directional_attack:
   cooldown: 0.15
@@ -26,7 +22,6 @@ health_monitor:
 key:
   add_hp: end
   add_mp: del
-  aoe_skill: z
   directional_attack: z
   jump: alt
   teleport: z
@@ -36,4 +31,3 @@ minimap:
   - 2
 system:
   fps_limit_keyboard_controller: 10
-  fps_limit_main: 30
