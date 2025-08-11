@@ -1220,7 +1220,24 @@ class MapleStoryAutoBot:
 
         # close party window
         press_key(self.cfg["key"]["party"])
-
+    # [新增] 等待 login 按鈕的共用函式（含 timeout 與例外復原）
+    def wait_for_login_button(self, window_title, timeout=60):
+        start = time.time()
+        loc_login_button = None
+        while not self.is_terminated and (time.time() - start) < timeout:
+            try:
+                self.img_frame = self.get_img_frame()
+                loc_login_button = self.get_login_button_location()
+                if loc_login_button is not None:
+                    return loc_login_button
+                logger.info("Waiting for login button to show up...")
+            except Exception as e:
+                logger.warning(f"Exception while waiting for login button: {e}")
+                if not is_mac():
+                    resize_window(window_title, width=1296, height=759)
+                logger.info("Retrying login button detection...")
+            time.sleep(3)
+        return None
     def channel_change(self):
         '''
         channel_change
@@ -1239,35 +1256,12 @@ class MapleStoryAutoBot:
         time.sleep(1)
 
         loc_login_button = None
-        while loc_login_button is None and not self.is_terminated:
-            try:
-                self.img_frame = self.get_img_frame()
-                loc_login_button = self.get_login_button_location()
-                if loc_login_button is None:
-                    logger.info("Waiting for login button to show up...")
-            except Exception as e:
-                logger.warning(f"Exception occurred while waiting for login button: {e}")
-                if not is_mac():
-                    resize_window(window_title, width=1296, height=759)
-                logger.info("Retrying login button detection...")
-
-            time.sleep(3)
+        # [替換] 單一等待＋逾時保護，找不到就中止，不再往下點擊
+        loc_login_button = self.wait_for_login_button(window_title, timeout=60)
         logger.info(f"login_button button found: {loc_login_button}")
-        if loc_login_button == None:
-            while loc_login_button is None:
-                try:
-                    self.img_frame = self.get_img_frame()
-                    loc_login_button = self.get_login_button_location()
-                    if loc_login_button is None:
-                        logger.info("Waiting for login button to show up...")
-                except Exception as e:
-                    logger.warning(f"Exception occurred while waiting for login button: {e}")
-                    if not is_mac():
-                        resize_window(window_title, width=1296, height=759)
-                    logger.info("Retrying login button detection...")
-
-                time.sleep(3)
-        logger.info(f"login_button button found: {loc_login_button}")
+        if loc_login_button is None:
+            logger.error("Login button not found after timeout. Abort channel_change.")
+            return
         time.sleep(3)  # wait the screen to be brighter
 
         # Click login button
