@@ -1,11 +1,19 @@
 bot:
-  map: pig_shores
+  map: land_of_wild_boar
+buff_skill:
+  cooldown:
+  - 180
+  keys:
+  - '1'
 channel_change:
+  enable: true
   mode: 'true'
 directional_attack:
-  cooldown: 0.3
-  range_x: 200
-  range_y: 100
+  cooldown: 0.15
+  range_x: 250
+  range_y: 80
+health_monitor:
+  add_mp_percent: 3
 key:
   add_hp: end
   add_mp: del
