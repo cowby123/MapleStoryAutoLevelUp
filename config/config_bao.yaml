@@ -1,5 +1,7 @@
+aoe_skill:
+  range_x: 300
 bot:
-  map: fire_land_1
+  map: black_mountain
 buff_skill:
   cooldown:
   - 600
@@ -8,14 +10,16 @@ buff_skill:
 channel_change:
   mode: 'true'
 directional_attack:
-  cooldown: 0.3
+  cooldown: 0.15
   range_x: 200
   range_y: 100
 health_monitor:
-  add_hp_percent: 20
+  add_hp_percent: 30
+  add_mp_percent: 10
 key:
   add_hp: end
   add_mp: del
+  aoe_skill: z
   directional_attack: z
   jump: alt
   teleport: z
@@ -23,3 +27,5 @@ minimap:
   offset:
   - 0
   - -1
+system:
+  fps_limit_keyboard_controller: 10
