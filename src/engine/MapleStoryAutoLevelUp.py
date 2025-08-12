@@ -1224,6 +1224,8 @@ class MapleStoryAutoBot:
     def wait_for_login_button(self, window_title, timeout=60):
         start = time.time()
         loc_login_button = None
+        if not is_mac():
+            resize_window(window_title, width=1296, height=759)
         while not self.is_terminated and (time.time() - start) < timeout:
             try:
                 self.img_frame = self.get_img_frame()
