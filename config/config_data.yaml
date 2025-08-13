@@ -24,6 +24,7 @@ eng_to_cn:
   disposed_flower_garden: 暗影花園
   mu_Lung_wild_bear_area_2: 野熊的領土2
   ston: 巨人之森
+  gon_pig: 弓箭手村東部草叢
   # monster
   zombie_lupin: 天使猴
   black_axe_stump: 黑斧木妖
@@ -75,6 +76,7 @@ map_mobs_mapping:
   garden_of_red_2: [red_cellion]
   foggy_forest_for_mage: [the_book_ghost]
   ston: [dark_stone_golem,mixed_golem]
+  gon_pig: [pig, ribbon_pig]
   101_2f_east: [blue_perfume]
   black_mountain: [hodori, moon_bunny, black_axe_stump]
   disposed_flower_garden: [nependeath, dark_nependeath]
