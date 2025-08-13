@@ -1261,10 +1261,9 @@ class MapleStoryAutoBot:
         # [替換] 單一等待＋逾時保護，找不到就中止，不再往下點擊
         loc_login_button = self.wait_for_login_button(window_title, timeout=60)
         logger.info(f"login_button button found: {loc_login_button}")
-        if loc_login_button is None:
+        while loc_login_button is None:
             logger.error("Login button not found after timeout. Abort channel_change.")
-            return
-        time.sleep(3)  # wait the screen to be brighter
+            time.sleep(3)  # wait the screen to be brighter
 
         # Click login button
         click_in_game_window(window_title, loc_login_button)
