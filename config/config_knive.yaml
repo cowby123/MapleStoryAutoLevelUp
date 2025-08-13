@@ -12,6 +12,7 @@ buff_skill:
   - f
   - '1'
 channel_change:
+  enable: true
   mode: 'true'
 directional_attack:
   cooldown: 0.3
@@ -19,9 +20,16 @@ directional_attack:
   range_y: 100
 health_monitor:
   add_hp_percent: 20
+  add_mp_percent: 3
 key:
   add_hp: end
   add_mp: del
   directional_attack: z
   jump: alt
   teleport: z
+minimap:
+  offset:
+  - 0
+  - -1
+system:
+  fps_limit_main: 30
