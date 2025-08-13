@@ -1,0 +1,30 @@
+bot:
+  map: gon_pig
+buff_skill:
+  cooldown:
+  - 600
+  - 300
+  - 300
+  keys:
+  - '1'
+  - a
+  - x
+channel_change:
+  enable: true
+  mode: 'true'
+directional_attack:
+  cooldown: 0.1
+  range_x: 250
+health_monitor:
+  add_hp_percent: 20
+  add_mp_percent: 30
+key:
+  add_hp: end
+  add_mp: del
+  directional_attack: z
+  jump: alt
+  teleport: z
+monster_detect:
+  search_box_margin: 80
+system:
+  fps_limit_keyboard_controller: 10
