@@ -1226,7 +1226,8 @@ class MapleStoryAutoBot:
         loc_login_button = None
         if not is_mac():
             resize_window(window_title, width=1296, height=759)
-        while not self.is_terminated and (time.time() - start) < timeout:
+        t = (time.time() - start)
+        while not self.is_terminated and t < timeout:
             try:
                 self.img_frame = self.get_img_frame()
                 loc_login_button = self.get_login_button_location()
@@ -1259,12 +1260,12 @@ class MapleStoryAutoBot:
 
         loc_login_button = None
         # [替換] 單一等待＋逾時保護，找不到就中止，不再往下點擊
+        loc_login_button = self.wait_for_login_button(window_title, timeout=60)
+        logger.info(f"login_button button found: {loc_login_button}")
 
-        while loc_login_button is None:
-            loc_login_button = self.wait_for_login_button(window_title, timeout=60)
-            logger.info(f"login_button button found: {loc_login_button}")
+        if loc_login_button is None:
             logger.error("Login button not found after timeout. Abort channel_change.")
-            time.sleep(3)  # wait the screen to be brighter
+            return
 
         # Click login button
         click_in_game_window(window_title, loc_login_button)
