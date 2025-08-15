@@ -107,31 +107,27 @@ class HealthMonitor:
         with self.frame_lock:
             img_frame = self.img_frame.copy()
 
-        img_frame_gray = cv2.cvtColor(img_frame, cv2.COLOR_BGR2GRAY)
-        white_mask = cv2.inRange(img_frame_gray, 240, 255)
-        # cv2.imshow("white_mask", white_mask)
+        # 只有第一次偵測 bar 座標，之後都用 self.loc_size_bars
+        if self.loc_size_bars == [(0, 0, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)]:
+            img_frame_gray = cv2.cvtColor(img_frame, cv2.COLOR_BGR2GRAY)
+            white_mask = cv2.inRange(img_frame_gray, 240, 255)
+            contours, _ = cv2.findContours(white_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            loc_size_bars = []
+            for cnt in contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+                if 4 < w/h < 10 and 2500 < w*h < 5000:
+                    loc_size_bars.append((x, y, w, h))
+            loc_size_bars = sorted(loc_size_bars, key=lambda bar: bar[0])
+            if len(loc_size_bars) == 3:
+                self.loc_size_bars = loc_size_bars
+            else:
+                return (None, None, None)
 
-        contours, _ = cv2.findContours(white_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        loc_size_bars = []
-        for cnt in contours:
-            x, y, w, h = cv2.boundingRect(cnt)
-            # for game window resolution 752x1282, w/h == 7.5, w*h == 3630
-            if 4 < w/h < 10 and 2500 < w*h < 5000:
-                loc_size_bars.append((x, y, w, h))
-
-        # sort contours by x coordinate
-        loc_size_bars = sorted(loc_size_bars, key=lambda bar: bar[0])
-        if len(loc_size_bars) != 3:
-            return (None, None, None)
-
-        # Update loc_size_bars
-        self.loc_size_bars = loc_size_bars
-
-        # Get bar filled ratio
+        # 用已取得的座標擷取 bar
         percent_bars = []
-        for x, y, w, h in loc_size_bars:
-            percent_bars.append(get_bar_percent(img_frame[y:y+h, x:x+w]))
+        bar_types = ["HP", "MP", "EXP"]
+        for i, (x, y, w, h) in enumerate(self.loc_size_bars):
+            percent_bars.append(get_bar_percent(img_frame[y:y+int(h/2), x:x+w], bar_types[i]))
         return percent_bars
 
     def _monitor_loop(self):

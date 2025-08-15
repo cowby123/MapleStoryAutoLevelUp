@@ -556,45 +556,48 @@ def debug_minimap_colors(img_minimap, target_color=(0, 0, 255)):
     
     return sorted_colors
 
-def get_bar_percent(img):
-    '''
-    Get HP/MP/EXP bar ratio with given bar image
 
-    Return: float [0.0 - 1.0]
-    '''
-    # Sample a horizontal line at the vertical center of the bar
+def get_bar_percent(img, bar_type=None):
     h, w = img.shape[:2]
-    line_pixels = img[h // 2, :]
-
-    # Get left white boundary of bar
-    lb = 0
-    while lb < w and np.all(line_pixels[lb] >= 255):
-        lb += 1
-
-    # Get right white boundary of bar
-    rb = w - 1
-    while rb > lb and np.all(line_pixels[rb] >= 255):
-        rb -= 1
-
-    # Sanity check
-    if rb <= lb:
-        return 0.0
-
-    # Get unfill pixel count in bar
-    unfill_pixel_cnt = 0
-    tolerance = 10
-    for i in range(lb, rb + 1):
-        r, g, b = line_pixels[i]
-        if  abs(int(r) - int(g)) <= tolerance and \
-            abs(int(r) - int(b)) <= tolerance and \
-            int(r) > 0:
-            unfill_pixel_cnt += 1
-
-    # Compute fill ratio
-    total_width = rb - lb + 1
-    fill_width = total_width - unfill_pixel_cnt
-    fill_ratio = fill_width / total_width if total_width > 0 else 0.0
-    return fill_ratio*100
+    
+    # 灰階
+    if len(img.shape) == 3:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = img.copy()
+    
+    # 二值化（白色=空條，黑色=已填充）
+    _, binary = cv2.threshold(gray, 190, 255, cv2.THRESH_BINARY)
+    
+    # 去掉上下外框（避免邊框干擾）
+    bar_region = binary[1:h-1, :]
+    
+    # 白色佔比
+    white_pixels = np.sum(bar_region == 255)
+    total_pixels = bar_region.size
+    white_ratio = white_pixels / total_pixels
+    
+    # 填充比例
+    fill_ratio = 1 - white_ratio
+    
+    # # === 顯示部分 ===
+    # if bar_type in ["HP", "MP"]:
+    #     # 把原圖與二值化圖都放大
+    #     scale_x, scale_y = 3, 3
+    #     img_display = cv2.resize(img, (w * scale_x, h * scale_y), interpolation=cv2.INTER_NEAREST)
+    #     binary_display = cv2.resize(binary, (w * scale_x, h * scale_y), interpolation=cv2.INTER_NEAREST)
+    #     binary_display = cv2.cvtColor(binary_display, cv2.COLOR_GRAY2BGR)
+        
+    #     # 在二值化圖上畫比例文字
+    #     cv2.putText(binary_display, f"{bar_type}: {fill_ratio*100:.1f}%", (10, h*scale_y - 10),
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        
+    #     # 顯示圖片
+    #     cv2.imshow(f"{bar_type} Original", img_display)
+    #     cv2.imshow(f"{bar_type} Binary", binary_display)
+    #     cv2.waitKey(1)
+    
+    return fill_ratio * 100
 
 def nms_matches(matches, iou_thresh=0.0):
     '''
