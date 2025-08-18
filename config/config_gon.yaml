@@ -1,23 +1,21 @@
 bot:
-  map: garden_of_green_2
+  map: ston
 buff_skill:
   cooldown:
-  - 80
-  - 110
-  - 61
   - 600
+  - 300
+  - 300
   keys:
+  - '1'
   - a
   - x
-  - f
-  - '1'
 channel_change:
+  enable: true
   mode: 'true'
 directional_attack:
   cooldown: 0.15
   range_x: 300
 health_monitor:
-  add_hp_percent: 40
   add_mp_percent: 10
 key:
   add_hp: end
@@ -28,6 +26,8 @@ key:
 minimap:
   offset:
   - 0
-  - 2
+  - -1
+monster_detect:
+  search_box_margin: 80
 system:
   fps_limit_keyboard_controller: 10
