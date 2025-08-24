@@ -747,56 +747,42 @@ class MapleStoryAutoBot:
 
     def get_monsters_in_range(self, top_left, bottom_right):
         '''
-        在指定範圍內檢測怪物
-        
-        參數:
-            top_left: 檢測範圍的左上角座標 (x, y)
-            bottom_right: 檢測範圍的右下角座標 (x, y)
-            
-        返回:
-            monsters: 包含檢測到的怪物資訊的列表，每個怪物為一個字典
+        get_monsters_in_range
         '''
-        # 解析檢測範圍的座標
-        x0, y0 = top_left  # 左上角座標
-        x1, y1 = bottom_right  # 右下角座標
+        x0, y0 = top_left
+        x1, y1 = bottom_right
 
-        # 從當前畫面截取感興趣區域(ROI)
         img_roi = self.img_frame[y0:y1, x0:x1]
 
-        # 將玩家位置轉換為ROI坐標系統中的位置
-        px, py = self.loc_player  # 玩家在整個畫面中的位置
-        px_in_roi = px - x0  # 玩家在ROI中的X座標
-        py_in_roi = py - y0  # 玩家在ROI中的Y座標
+        # Shift player's location into ROI coordinate system
+        px, py = self.loc_player
+        px_in_roi = px - x0
+        py_in_roi = py - y0
 
-        # 定義玩家角色周圍的矩形範圍(在ROI坐標系中)
-        # 這個範圍用於排除玩家自身，避免誤檢測為怪物
+        # Define rectangle range around player (in ROI coordinate)
         char_x_min = max(0, px_in_roi - self.cfg["character"]["width"] // 2)
         char_x_max = min(img_roi.shape[1], px_in_roi + self.cfg["character"]["width"] // 2)
         char_y_min = max(0, py_in_roi - self.cfg["character"]["height"] // 2)
         char_y_max = min(img_roi.shape[0], py_in_roi + self.cfg["character"]["height"] // 2)
 
-        # 初始化怪物列表
         monsters = []
-        # 遍歷所有已知的怪物模板
         for monster_name, monster_imgs in self.monsters_info.items():
             for img_monster, mask_monster in monster_imgs:
-                # 巡邏模式下不使用模板匹配檢測怪物
                 if self.cfg["bot"]["mode"] == "patrol":
-                    pass # 巡邏模式下不使用模板檢測怪物
+                    pass # Don't detect monster using template in patrol mode
                 elif self.cfg["monster_detect"]["mode"] == "template_free":
-                    # 生成黑色像素掩碼 (像素值剛好是(0,0,0)的部分)
+                    # Generate mask where pixel is exactly (0,0,0)
                     black_mask = np.all(img_roi == [0, 0, 0], axis=2).astype(np.uint8) * 255
                     # cv2.imshow("Black Pixel Mask", black_mask)
 
-                    # 將玩家角色區域的掩碼設為0(忽略玩家自身)
+                    # Zero out mask inside this region (ignore player's own character)
                     black_mask[char_y_min:char_y_max, char_x_min:char_x_max] = 0
 
-                    # 使用橢圓形結構元素進行形態學閉運算，連接相近的區域
                     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (20, 20))
                     closed_mask = cv2.morphologyEx(black_mask, cv2.MORPH_CLOSE, kernel)
                     # cv2.imshow("Black Mask", closed_mask)
 
-                    # 在調試畫面上繪製玩家角色邊界框
+                    # draw player character bounding box
                     draw_rectangle(
                         self.img_frame_debug, (char_x_min+x0, char_y_min+y0),
                         (self.cfg["character"]["height"], self.cfg["character"]["width"]),
@@ -862,92 +848,83 @@ class MapleStoryAutoBot:
                     match_locations = np.where(res <= self.cfg["monster_detect"]["diff_thres"])
                     h, w = img_monster.shape[:2]
                     for pt in zip(*match_locations[::-1]):
-                        # 將檢測到的怪物添加到列表中，記錄名稱、位置、大小和匹配分數
                         monsters.append({
                             "name": monster_name,
                             "position": (pt[0] + x0, pt[1] + y0),
                             "size": (h, w),
                             "score": res[pt[1], pt[0]],
-                            # 添加怪物方向，判斷怪物是在玩家的左側還是右側
-                            "direction": "left" if (pt[0] + x0 + w // 2) < self.loc_player[0] else "right"
-                        })
+                    })
                 elif self.cfg["monster_detect"]["mode"] == "color":
-                    # 這裡是顏色模式的怪物檢測
-                    # 注意：原始代碼中似乎有語法錯誤，已修正並添加註解
-                    monsters_color = []
-                    for monster_name, monster_imgs in self.monsters_info.items():
-                        for img_monster, mask_monster in monster_imgs:
-                            # 顏色模式下的怪物檢測邏輯
-                            # 在檢測到怪物時，將怪物的方向信息也加入到返回數據中
-                            # 方向基於怪物中心點相對於玩家位置來確定：
-                            # - 如果怪物中心點的X座標小於玩家X座標，則怪物在左側
-                            # - 否則怪物在右側
+                    res = cv2.matchTemplate(
+                            img_roi,
+                            img_monster,
+                            cv2.TM_SQDIFF_NORMED,
+                            mask=mask_monster)
+                    match_locations = np.where(res <= self.cfg["monster_detect"]["diff_thres"])
+                    h, w = img_monster.shape[:2]
+                    for pt in zip(*match_locations[::-1]):
+                        monsters.append({
+                            "name": monster_name,
+                            "position": (pt[0] + x0, pt[1] + y0),
+                            "size": (h, w),
+                            "score": res[pt[1], pt[0]],
+                    })
+                else:
+                    logger.error(f"Unexpected camera localization mode: {self.cfg['monster_detect']['mode']}")
+                    return []
 
-                            # Apply Non-Maximum Suppression to monster detection
-                            monsters = nms(monsters, iou_threshold=0.4)
+        # Apply Non-Maximum Suppression to monster detection
+        monsters = nms(monsters, iou_threshold=0.4)
 
-                            # Detect monster via health bar
-                            # 檢測是否啟用怪物血條檢測
-                            if self.cfg["monster_detect"]["with_enemy_hp_bar"]:
-                                # 創建怪物HP血條的顏色掩碼
-                                mask = cv2.inRange(img_roi,
-                                                   np.array(self.cfg["monster_detect"]["hp_bar_color"]),
-                                                   np.array(self.cfg["monster_detect"]["hp_bar_color"]))
+        # Detect monster via health bar
+        if self.cfg["monster_detect"]["with_enemy_hp_bar"]:
+            # Create color mask for Monsters' HP bar
+            mask = cv2.inRange(img_roi,
+                               np.array(self.cfg["monster_detect"]["hp_bar_color"]),
+                               np.array(self.cfg["monster_detect"]["hp_bar_color"]))
 
-                                # 查找連通區域（每個綠色像素的集群代表一個怪物血條）
-                                num_labels, labels, stats, centroids = \
-                                    cv2.connectedComponentsWithStats(mask, connectivity=8)
+            # Find connected components (each cluster of green pixels)
+            num_labels, labels, stats, centroids = \
+                cv2.connectedComponentsWithStats(mask, connectivity=8)
 
-                                # 遍歷所有檢測到的連通區域（跳過背景，標籤0）
-                                for i in range(1, num_labels):
-                                    x, y, w, h, area = stats[i]
-                                    # 過濾小噪點
-                                    if area < 3:
-                                        continue
+            for i in range(1, num_labels):  # skip background (label 0)
+                x, y, w, h, area = stats[i]
+                if area < 3:  # small noise filter
+                    continue
 
-                                    # 根據血條位置估算怪物的邊界框
-                                    y += 10  # 向下偏移10像素，因為血條通常在怪物上方
-                                    x = max(0, x)  # 確保座標不為負
-                                    y = max(0, y)
-                                    w = 70  # 設定一個固定寬度
-                                    h = min(img.shape[0] for _, imgs in self.monsters_info.items() for img, _ in imgs)
+                # Guess a monster bounding box
+                y += 10
+                x = max(0, x)
+                y = max(0, y)
+                w = 70
+                h = min(img.shape[0] for _, imgs in self.monsters_info.items() for img, _ in imgs)
 
-                                    # 計算怪物中心點X座標並確定其相對於玩家的方向
-                                    monster_center_x = x0 + x + w // 2
-                                    direction = "left" if monster_center_x < self.loc_player[0] else "right"
-                                    
-                                    # 將血條檢測到的怪物添加到列表中
-                                    monsters.append({
-                                        "name": "Health Bar",  # 血條檢測方式檢測到的怪物統一命名為"Health Bar"
-                                        "position": (x0 + x, y0 + y),  # 怪物在整個畫面中的座標
-                                        "size": (h, w),  # 怪物的高度和寬度
-                                        "score": 1.0,  # 血條檢測的分數固定為1.0
-                                        "direction": direction,  # 怪物相對於玩家的方向
-                                    })
-        # 注意：這部分代碼似乎存在縮排錯誤，已修正並添加註解
-        
-        # 調試視覺化功能
-        # 在調試圖像上繪製怪物檢測範圍
+                monsters.append({
+                    "name": "Health Bar",
+                    "position": (x0 + x, y0 + y),
+                    "size": (h, w),
+                    "score": 1.0,
+                })
+
+        # Debug
+        # Draw attack detection range
         draw_rectangle(
             self.img_frame_debug, (x0, y0), (y1-y0, x1-x0),
-            (255, 0, 0), "Mob Detection Box"  # 藍色框顯示怪物檢測區域
+            (255, 0, 0), "Mob Detection Box"
         )
 
-        # 在調試圖像上繪製所有檢測到的怪物邊界框
+        # Draw monsters bounding box
         for monster in monsters:
-            # 根據怪物檢測方式決定邊界框顏色
             if monster["name"] == "Health Bar":
-                color = (0, 255, 255)  # 黃色表示通過血條檢測到的怪物
+                color = (0, 255, 255)
             else:
-                color = (0, 255, 0)    # 綠色表示通過模板匹配檢測到的怪物
+                color = (0, 255, 0)
 
-            # 繪製怪物邊界框並標註匹配分數
             draw_rectangle(
                 self.img_frame_debug, monster["position"], monster["size"],
-                color, str(round(monster['score'], 2))  # 顯示怪物檢測的匹配分數(四捨五入到兩位小數)
+                color, str(round(monster['score'], 2))
             )
 
-        # 返回檢測到的所有怪物列表
         return monsters
 
     def get_img_frame(self):
