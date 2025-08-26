@@ -931,19 +931,11 @@ class MapleStoryAutoBot:
         '''
         get_img_frame
         '''
-        try:
-            # Get window game raw frame
-            self.frame = self.capture.get_frame()
-            if self.frame is None:
-                logger.warning("Failed to capture game frame.")
-                # 嘗試重新激活遊戲窗口
-                if not is_mac() and hasattr(self.capture, 'window_title'):
-                    logger.info("Attempting to reactivate game window...")
-                    activate_game_window(self.capture.window_title)
-                return None
-        except Exception as e:
-            logger.error(f"Exception while capturing frame: {e}")
-            return None
+        # Get window game raw frame
+        self.frame = self.capture.get_frame()
+        if self.frame is None:
+            logger.warning("Failed to capture game frame.")
+            return
 
         # Cut the title bar and resize raw frame to (1296, 759)
         frame_no_title = self.frame[self.cfg["game_window"]["title_bar_height"]:, :]
@@ -1778,27 +1770,17 @@ class MapleStoryAutoBot:
         '''
         # Make sure player is in party
         if not is_mac():
-            try:
-                activate_game_window(self.capture.window_title)
-                time.sleep(0.3)
-                self.ensure_is_in_party()
-            except Exception as e:
-                logger.error(f"Error during initialization: {e}")
-                # 如果初始化失敗，可能需要重新啟動
-                return
+            activate_game_window(self.capture.window_title)
+            time.sleep(0.3)
+            self.ensure_is_in_party()
 
         while not self.kb.is_terminated:
-            try:
-                t_start = time.time()
 
-                # Process one game window frame
-                self.is_frame_done = False
-                ret = self.run_once()
-            except Exception as e:
-                logger.error(f"Error in main loop: {e}")
-                # 出錯後短暫暫停避免CPU使用率過高
-                time.sleep(1)
-                continue
+            t_start = time.time()
+
+            # Process one game window frame
+            self.is_frame_done = False
+            ret = self.run_once()
 
             # Only proceed if the frame is valid
             if ret == 0:

@@ -79,19 +79,7 @@ class GameWindowCapturor:
         with self.lock:
             if self.frame is None:
                 return None
-            try:
-                # 確保 frame 是有效的圖像數據
-                if isinstance(self.frame, (bytes, bytearray, memoryview)) and len(self.frame) > 0:
-                    return cv2.cvtColor(self.frame, cv2.COLOR_BGRA2BGR)
-                else:
-                    logger.warning("[GameWindowCapturor] Invalid frame data")
-                    return None
-            except cv2.error as e:
-                logger.error(f"[GameWindowCapturor] OpenCV error during color conversion: {e}")
-                return None
-            except Exception as e:
-                logger.error(f"[GameWindowCapturor] Unexpected error during frame processing: {e}")
-                return None
+            return cv2.cvtColor(self.frame, cv2.COLOR_BGRA2BGR)
 
     def stop(self):
         '''
