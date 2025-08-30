@@ -21,6 +21,7 @@ class GameWindowCapturor:
     def __init__(self, cfg, test_image_name = None):
         self.cfg = cfg
         self.frame = None
+        self.last_frame = None
         self.lock = threading.Lock()
         self.is_terminated = False
         self.fps = 0
@@ -79,7 +80,16 @@ class GameWindowCapturor:
         with self.lock:
             if self.frame is None:
                 return None
-            return cv2.cvtColor(self.frame, cv2.COLOR_BGRA2BGR)
+            try:
+                dd = cv2.cvtColor(self.frame, cv2.COLOR_BGRA2BGR)
+                self.last_frame = self.frame
+                return dd
+
+            except Exception as e:
+                logger.error(f"[GameWindowCapturor] Error in get_frame: {e}")
+                dd = cv2.cvtColor(self.last_frame, cv2.COLOR_BGRA2BGR)
+                return dd
+            
 
     def stop(self):
         '''
