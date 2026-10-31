@@ -1,0 +1,46 @@
+# ====== Example: maple VM (wingpu) ======
+# Run (in the VM's script container):
+#   cd /work/MapleStoryAutoLevelUp && /work/venv-msbot/bin/python -m src.engine.MapleStoryAutoLevelUp --cfg wingpu_maple
+# Everything below marked CONFIRM needs the player's input before going live.
+
+system:
+  platform: "wingpu"
+
+bot:
+  mode: "normal"
+  attack: "directional"
+  map: "gon_pig"            # 弓箭手村東部草叢 (where the character stood on 2026-10-31)
+
+key:
+  # CONFIRM: copied from config_gun.yaml (same map). The in-game hotbar on 10-31 showed
+  # Ctrl = 攻擊, Del = red potion, End = blue potion -> HP/MP may be the other way round.
+  directional_attack: "z"
+  teleport: "z"
+  jump: "alt"
+  add_hp: "end"
+  add_mp: "del"
+  party: "p"
+  return_home: "home"
+
+buff_skill:
+  keys: []                  # CONFIRM: config_gun.yaml has ['1', 'a', 'x'] with [600, 300, 300] s
+  cooldown: []
+
+directional_attack:
+  cooldown: 0.1
+  range_x: 250
+
+health_monitor:
+  add_hp_percent: 20
+  add_mp_percent: 30
+
+monster_detect:
+  search_box_margin: 80
+
+channel_change:
+  enable: False             # it clicks menus; keep off until live input is approved
+
+wingpu:
+  dry_run: True             # CONFIRM: set False (or run with --wingpu_live) only after approval
+  debug_interval: 2
+  http_port: 8765           # status / debug.png / mjpeg inside the container network

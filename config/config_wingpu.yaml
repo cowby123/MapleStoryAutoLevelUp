@@ -1,0 +1,36 @@
+# ====== wingpu Configuration ======
+# Used when the game runs inside a wingpu VM and the bot runs in that VM's
+# script container (or anywhere with the wingpu SDK). Applied after
+# config_default.yaml and before config_<your cfg>.yaml, so override any of
+# these in your own config. See README.wingpu.md.
+
+system:
+  platform: "wingpu"
+
+wingpu:
+  # 🛑 Dry run: log every key/mouse action the bot WOULD send, send nothing.
+  # Turning it off needs `dry_run: false` in YOUR config or --wingpu_live.
+  dry_run: True
+
+  # 🪟 Where the game client is in the guest screen (guest pixels)
+  detect: "auto"            # "auto" | "fixed" | "template" | "fullscreen"
+                            #  auto: client_rect if set, else title_template if it matches, else fullscreen
+  client_rect: []           # [x, y, w, h] fixed client area (excluding the title bar)
+  title_template: ""        # image of the window title bar (tools/wingpu_calibrate.py writes it)
+  title_thres: 0.05         # TM_SQDIFF_NORMED threshold for the title template (lower = stricter)
+  title_to_client: [0, 0]   # offset from the template's top-left to the client's top-left
+  client_size_guest: [1282, 693] # [w, h] client size in guest pixels when found by the template
+  redetect_interval: 5      # seconds between client re-detection (window moved / resized)
+  interpolation: "nearest"  # resize when the client is not game_window.size: nearest | area | linear
+
+  # 🎛️ Control and debug output (default directory: /work in the container, else .)
+  start_running: True       # bot acts at start when there is no control file
+  control_file: ""          # default <dir>/control.json: {"run": true|false} or {"quit": true}
+  debug_dir: ""             # default <dir>/debug: latest.png, latest_guest.jpg, status.json
+  debug_interval: 2         # seconds between debug outputs
+  http_port: 0              # >0: status / debug.png / mjpeg / run / pause on this port
+
+  # 🌐 Only outside the script container (network API of the wingpu manager)
+  url: ""
+  vm: ""
+  token: ""

@@ -6,25 +6,34 @@ Simulate user keyboard input to control character in the game
 import threading
 import time
 
-# Library import
-import pyautogui
-from pynput import keyboard
-
 # Local import
 from src.utils.logger import logger
-from src.utils.common import is_mac
+from src.utils.common import is_mac, is_windows, is_wingpu
+from src.input.WingpuKeyboard import get_keyboard as get_wingpu_keyboard
+
+# Library import (desktop automation only exists on Windows / macOS)
+try:
+    import pyautogui
+    pyautogui.PAUSE = 0  # remove delay
+except Exception: # Linux (wingpu script container)
+    pyautogui = None
+try:
+    from pynput import keyboard
+except Exception:
+    keyboard = None
 
 if is_mac():
     import Quartz
-else:
+elif is_windows():
     import pygetwindow as gw
-
-pyautogui.PAUSE = 0  # remove delay
 
 def key_down(key):
     '''
     Press key down
     '''
+    if is_wingpu():
+        get_wingpu_keyboard().key_down(key)
+        return
     try:
         pyautogui.keyDown(key)
     except pyautogui.FailSafeException:
@@ -35,6 +44,9 @@ def key_up(key):
     '''
     Release key
     '''
+    if is_wingpu():
+        get_wingpu_keyboard().key_up(key)
+        return
     try:
         pyautogui.keyUp(key)
     except pyautogui.FailSafeException:
@@ -57,6 +69,10 @@ def press_key(key, duration=0.05):
     '''
     Simulates a key press for a specified duration
     '''
+    if is_wingpu():
+        if key:
+            get_wingpu_keyboard().press_key(key, duration)
+        return
     if key:
         key_down(key)
         time.sleep(duration)
@@ -94,7 +110,10 @@ class KeyBoardController():
 
         # use 'ctrl', 'alt' for mac, because it's hard to get around
         # macOS's security settings
-        if is_mac():
+        if keyboard is None:
+            # wingpu: no local hotkeys; control via control.json / HTTP (WingpuControl)
+            self.toggle_key = self.screenshot_key = self.terminate_key = None
+        elif is_mac():
             self.toggle_key = keyboard.Key.ctrl
             self.screenshot_key = keyboard.Key.alt
             self.terminate_key = keyboard.Key.esc
@@ -153,6 +172,8 @@ class KeyBoardController():
         - True
         - False
         '''
+        if is_wingpu():
+            return True # Cannot see guest focus; the game must be the active window
         if is_mac():
             active_window = Quartz.CGWindowListCopyWindowInfo(
                 Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,

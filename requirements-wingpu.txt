@@ -1,0 +1,7 @@
+# Linux deps for the wingpu platform (the VM's script container). See README.wingpu.md.
+# The wingpu SDK (import wingpu) is already installed in the container image.
+opencv-python-headless
+numpy
+pyyaml
+ruamel.yaml
+requests

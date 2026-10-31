@@ -326,6 +326,7 @@ system:
   key_debounce_interval: 1          # ⏱️ Cooldown (in seconds) between function key presses (e.g., F1, F2...)
   server: "TW"                      # ⚙️ Options: "TW" "NA"
   language: "cn"                    # ⚙️ Options: "eng" "cn"
+  platform: "auto"                  # ⚙️ Options: "auto" "windows" "mac" "wingpu" (wingpu: game in a wingpu VM, see README.wingpu.md)
 
 profiler:
   # ⚙️ Profiler

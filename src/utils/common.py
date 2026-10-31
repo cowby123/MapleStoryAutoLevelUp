@@ -17,14 +17,21 @@ import time
 # Libarary Import
 import numpy as np
 import yaml
-import pyautogui
-import pygetwindow as gw
 from ruamel.yaml import YAML
+
+# Desktop automation imports: only on the OS that has them.
+# On Linux (wingpu script container) none of these exist; the wingpu backend
+# (src/input/*Wingpu*) is used instead.
+try:
+    import pyautogui
+except Exception: # no display / not installed (Linux container)
+    pyautogui = None
 
 # macOS Import
 if platform.system() == 'Darwin':
     import Quartz
-else:
+elif platform.system() == 'Windows':
+    import pygetwindow as gw
     import win32gui
     import win32con
 
@@ -39,6 +46,51 @@ def is_mac():
 
 def is_windows():
     return OS_NAME == 'Windows'
+
+##########################
+### Platform selection ###
+##########################
+# "windows" / "mac": the game runs on this machine (upstream behaviour).
+# "wingpu": the game runs in a wingpu VM; frames and input go through the wingpu
+#           SDK (docs: README.wingpu.md).
+# Order: env WINGPU (1/0) > set_platform() (config system.platform) >
+#        auto (/wingpu/frame exists, i.e. inside the VM's script container).
+_platform = None
+
+def _native_platform():
+    return "mac" if is_mac() else "windows" if is_windows() else "linux"
+
+def get_platform():
+    global _platform
+    if _platform is None:
+        env = os.environ.get("WINGPU", "").strip().lower()
+        if env in ("1", "true", "yes", "on"):
+            _platform = "wingpu"
+        elif env in ("0", "false", "no", "off"):
+            _platform = _native_platform()
+        elif not is_windows() and not is_mac() and os.path.exists("/wingpu/frame"):
+            _platform = "wingpu"
+        else:
+            _platform = _native_platform()
+    return _platform
+
+def set_platform(name):
+    '''
+    Set platform from config system.platform ("auto", "windows", "mac", "wingpu").
+    The env var WINGPU still wins.
+    '''
+    global _platform
+    if os.environ.get("WINGPU", "").strip():
+        return get_platform()
+    if name in (None, "", "auto"):
+        _platform = None
+        return get_platform()
+    _platform = name
+    logger.info(f"[set_platform] platform = {name}")
+    return _platform
+
+def is_wingpu():
+    return get_platform() == "wingpu"
 
 def load_yaml(path):
     with open(path, 'r', encoding='utf-8') as f:
@@ -668,6 +720,12 @@ def click_in_game_window(window_title, coord):
     '''
     Mouse click on a game window coordinate
     '''
+    if is_wingpu():
+        # game window coord -> guest pixel via the capturor; dry-run gated
+        from src.input.WingpuKeyboard import get_keyboard
+        get_keyboard().click(coord)
+        return
+
     # game_window = gw.getWindowsWithTitle(window_title)[0]
     # win_left, win_top = game_window.left, game_window.top
 
@@ -773,6 +831,8 @@ def activate_game_window(window_title):
     activate_game_window
     This function only support Windows OS
     '''
+    if is_wingpu():
+        return # The bot cannot focus guest windows; the game must be in front
     hwnd = win32gui.FindWindow(None, window_title)
     if hwnd == 0:
         raise Exception(f"Cannot find window with title: {window_title}")
@@ -795,6 +855,8 @@ def get_game_window_title_by_token(token):
     '''
     Only work in Windows OS
     '''
+    if is_wingpu():
+        return token # Window titles of the guest are not visible from the container
     def callback(hwnd, matches):
         title = win32gui.GetWindowText(hwnd)
         if token.lower() in title.lower():
@@ -835,6 +897,8 @@ def normalize_pixel_coordinate(coord, window_size):
     return (norm_x, norm_y)
 
 def resize_window(window_title, width=1296, height=759):
+    if is_wingpu():
+        return # Window placement in the guest is up to the user (README.wingpu.md)
     # 取得視窗句柄
     hwnd = win32gui.FindWindow(None, window_title)
     if hwnd == 0:

@@ -25,14 +25,16 @@ from src.utils.common import (find_pattern_sqdiff, draw_rectangle, screenshot, n
     load_image, get_mask, get_minimap_loc_size, get_player_location_on_minimap,
     is_mac, override_cfg, load_yaml, get_all_other_player_locations_on_minimap,
     click_in_game_window, mask_route_colors, to_opencv_hsv, debug_minimap_colors,
-    activate_game_window, is_img_16_to_9, normalize_pixel_coordinate, resize_window
+    activate_game_window, is_img_16_to_9, normalize_pixel_coordinate, resize_window,
+    is_windows, is_wingpu, set_platform
 )
 from src.input.KeyBoardController import KeyBoardController, press_key
-from src.input.KeyBoardListener import KeyBoardListener
 if is_mac():
     from src.input.GameWindowCapturorForMac import GameWindowCapturor
-else:
+elif is_windows():
     from src.input.GameWindowCapturor import GameWindowCapturor
+else:
+    GameWindowCapturor = None # Linux: only the wingpu platform
 from src.engine.HealthMonitor import HealthMonitor
 from src.engine.Profiler import Profiler
 from src.engine.RuneSolver import RuneSolver
@@ -78,6 +80,7 @@ class MapleStoryAutoBot:
         self.is_disable_control = args.disable_control
         self.is_ui = args.is_ui # Whether is using UI framework to invoke engine
         self.is_frame_done = False #
+        self.frame_count = 0 # frames processed by the main loop
         # Coordinate (top-left coordinate)
         self.loc_nametag = (0, 0) # nametag location on game screen
         self.loc_party_red_bar = (0, 0) # party red bar location on game screen
@@ -249,16 +252,28 @@ class MapleStoryAutoBot:
         '''
         Start all threads
         '''
+        # wingpu: input goes to the VM; dry run unless explicitly turned off
+        if is_wingpu():
+            from src.input.WingpuKeyboard import get_keyboard
+            wcfg = self.cfg.get("wingpu", {}) or {}
+            live = bool(getattr(self.args, "wingpu_live", False)) or                    wcfg.get("dry_run", True) is False
+            get_keyboard().configure(self.cfg, live=live)
+
         # Start keyboard controller thread
         self.kb = KeyBoardController(self.cfg)
         if self.is_disable_control:
             self.kb.disable() # Disable keyboard controller for debugging
 
         # Start game window capturing thread
-        if self.args.test_image == '':
-            self.capture = GameWindowCapturor(self.cfg)
+        if is_wingpu():
+            from src.input.GameWindowCapturorForWingpu import WingpuCapturor
+            Capturor = WingpuCapturor
         else:
-            self.capture = GameWindowCapturor(self.cfg, self.args.test_image)
+            Capturor = GameWindowCapturor
+        if self.args.test_image == '':
+            self.capture = Capturor(self.cfg)
+        else:
+            self.capture = Capturor(self.cfg, self.args.test_image)
 
         # Start health monitoring thread
         self.health_monitor = HealthMonitor(self.cfg, self.kb)
@@ -1796,6 +1811,7 @@ class MapleStoryAutoBot:
                 # logger.warning("Skipped debug window update due to invalid frame.")
 
             self.is_frame_done = True
+            self.frame_count += 1
 
             # Cap FPS to save system resource
             frame_duration = time.time() - t_start
@@ -1825,11 +1841,17 @@ def main(args):
     ####################
     # Load defautl yaml config
     cfg = load_yaml("config/config_default.yaml")
+    cfg_user = load_yaml(f"config/config_{args.cfg}.yaml")
+    # Platform: env WINGPU > config system.platform > auto
+    set_platform(cfg_user.get("system", {}).get("platform",
+                 cfg["system"].get("platform", "auto")))
     # Override with platform config
-    if is_mac():
+    if is_wingpu():
+        cfg = override_cfg(cfg, load_yaml("config/config_wingpu.yaml"))
+    elif is_mac():
         cfg = override_cfg(cfg, load_yaml("config/config_macOS.yaml"))
     # Override with user customized config
-    cfg = override_cfg(cfg, load_yaml(f"config/config_{args.cfg}.yaml"))
+    cfg = override_cfg(cfg, cfg_user)
     # Dump config to log for debugging
     logger.debug(yaml.dump(cfg, sort_keys=False,
                  indent=2, default_flow_style=False))
@@ -1852,6 +1874,28 @@ def main(args):
     if args.record:
         mapleStoryAutoBot.start_record()
 
+    # Headless (wingpu script container): control file / HTTP instead of
+    # hotkeys, debug images on disk instead of OpenCV windows
+    if is_wingpu() or args.headless:
+        import signal
+        from src.input.WingpuControl import WingpuControl
+        def on_sigterm(signum, frame):
+            raise KeyboardInterrupt # stop from the manager page / docker: release keys first
+        signal.signal(signal.SIGTERM, on_sigterm)
+        control = WingpuControl(mapleStoryAutoBot, mapleStoryAutoBot.cfg)
+        try:
+            while not mapleStoryAutoBot.is_terminated and not control.quit:
+                control.tick()
+                time.sleep(0.05)
+        except KeyboardInterrupt:
+            logger.info("Interrupted (SIGINT/SIGTERM)")
+        control.stop()
+        mapleStoryAutoBot.terminate_threads()
+        if mapleStoryAutoBot.kb is not None:
+            mapleStoryAutoBot.kb.release_all_key()
+        return
+
+    from src.input.KeyBoardListener import KeyBoardListener
     kb_listener = KeyBoardListener(is_autobot=True)
     kb_listener.register_func_key_handler('f1', mapleStoryAutoBot.kb.toggle_enable)
     kb_listener.register_func_key_handler('f2', mapleStoryAutoBot.screenshot_img_frame)
@@ -1923,6 +1967,19 @@ if __name__ == '__main__':
         '--init_state',
         default="",
         help="choose the init_state"
+    )
+
+    parser.add_argument(
+        '--headless',
+        action="store_true",
+        help="No OpenCV windows / hotkeys; use control file + debug images "
+             "(always on for the wingpu platform)"
+    )
+
+    parser.add_argument(
+        '--wingpu_live',
+        action="store_true",
+        help="wingpu: really send key/mouse input to the VM (default: dry run)"
     )
 
     args = parser.parse_args()
