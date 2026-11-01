@@ -25,7 +25,10 @@ except Exception:
 if is_mac():
     import Quartz
 elif is_windows():
-    import pygetwindow as gw
+    try:
+        import pygetwindow as gw
+    except ImportError: # offline tools on Windows without the desktop packages
+        gw = None
 
 def key_down(key):
     '''
@@ -103,6 +106,7 @@ class KeyBoardController():
         # Flags
         self.is_enable = True
         self.is_need_force_heal = False
+        self.is_hold = False # detection lost: send nothing (MapleStoryAutoBot.check_detection_lost)
         self.is_terminated = False
         # Parameters
         self.debounce_interval = self.cfg["system"]["key_debounce_interval"]
@@ -151,6 +155,12 @@ class KeyBoardController():
         disable keyboard controlller
         '''
         self.is_enable = False
+
+    def hold(self, on):
+        '''
+        Hold still (send nothing) while detection is lost; independent of enable/disable
+        '''
+        self.is_hold = bool(on)
 
     def enable(self):
         '''
@@ -225,7 +235,7 @@ class KeyBoardController():
         '''
         while not self.is_terminated:
             # Check if game window is active
-            if not self.is_enable or not self.is_game_window_active():
+            if not self.is_enable or self.is_hold or not self.is_game_window_active():
                 self.limit_fps()
                 continue
 

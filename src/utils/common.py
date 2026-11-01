@@ -31,9 +31,12 @@ except Exception: # no display / not installed (Linux container)
 if platform.system() == 'Darwin':
     import Quartz
 elif platform.system() == 'Windows':
-    import pygetwindow as gw
-    import win32gui
-    import win32con
+    try:
+        import pygetwindow as gw
+        import win32gui
+        import win32con
+    except ImportError: # offline tools (tools/wingpu_detect_test.py) need none of these
+        gw = win32gui = win32con = None
 
 # Local import
 from src.utils.logger import logger
@@ -444,7 +447,7 @@ def to_standard_hsv(color_hsv):
     v_std = v / 255 * 100
     return (h_std, s_std, v_std)
 
-def get_minimap_loc_size(img_frame):
+def get_minimap_loc_size(img_frame, min_size=100):
     '''
     Detects the location and size of the minimap within the game frame.
 
@@ -472,7 +475,7 @@ def get_minimap_loc_size(img_frame):
         x0, y0, rw, rh, area = stats[i]
 
         # Filter out small blobs
-        if rw < 100 or rh < 100:
+        if rw < min_size or rh < min_size:
             continue
 
         x1 = x0 + rw - 1
@@ -610,46 +613,25 @@ def debug_minimap_colors(img_minimap, target_color=(0, 0, 255)):
 
 
 def get_bar_percent(img, bar_type=None):
+    '''
+    Fill percentage of an HP/MP/EXP bar. img = the bar's box including its white
+    frame. The filled part is saturated (red / blue / yellow), the empty part is
+    light grey/white: count the saturated columns of the bar's inside.
+
+    (Upstream thresholded grey > 190 as "empty"; the yellow EXP fill is grey
+    ~195, so EXP always read ~0%, and the white frame rows cost HP/MP ~13%.
+    Checked on maple frames 2026-11-02: HP/MP 100% at 561/561, 421/421;
+    EXP 45.8 / 46.4 / 51.2 % vs the game's 45.63 / 46.62 / 50.31 %.)
+    '''
     h, w = img.shape[:2]
-    
-    # 灰階
-    if len(img.shape) == 3:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    else:
-        gray = img.copy()
-    
-    # 二值化（白色=空條，黑色=已填充）
-    _, binary = cv2.threshold(gray, 190, 255, cv2.THRESH_BINARY)
-    
-    # 去掉上下外框（避免邊框干擾）
-    bar_region = binary[1:h-1, :]
-    
-    # 白色佔比
-    white_pixels = np.sum(bar_region == 255)
-    total_pixels = bar_region.size
-    white_ratio = white_pixels / total_pixels
-    
-    # 填充比例
-    fill_ratio = 1 - white_ratio
-    
-    # # === 顯示部分 ===
-    # if bar_type in ["HP", "MP"]:
-    #     # 把原圖與二值化圖都放大
-    #     scale_x, scale_y = 3, 3
-    #     img_display = cv2.resize(img, (w * scale_x, h * scale_y), interpolation=cv2.INTER_NEAREST)
-    #     binary_display = cv2.resize(binary, (w * scale_x, h * scale_y), interpolation=cv2.INTER_NEAREST)
-    #     binary_display = cv2.cvtColor(binary_display, cv2.COLOR_GRAY2BGR)
-        
-    #     # 在二值化圖上畫比例文字
-    #     cv2.putText(binary_display, f"{bar_type}: {fill_ratio*100:.1f}%", (10, h*scale_y - 10),
-    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        
-    #     # 顯示圖片
-    #     cv2.imshow(f"{bar_type} Original", img_display)
-    #     cv2.imshow(f"{bar_type} Binary", binary_display)
-    #     cv2.waitKey(1)
-    
-    return fill_ratio * 100
+    m = max(2, h // 7)
+    inner = img[m:h - m, m:w - m]
+    if inner.size == 0:
+        return 0.0
+    if inner.ndim == 2:
+        inner = cv2.cvtColor(inner, cv2.COLOR_GRAY2BGR)
+    sat = cv2.cvtColor(inner, cv2.COLOR_BGR2HSV)[:, :, 1].mean(axis=0)
+    return float((sat > 90).mean() * 100)
 
 def nms_matches(matches, iou_thresh=0.0):
     '''

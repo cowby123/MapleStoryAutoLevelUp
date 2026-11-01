@@ -206,6 +206,14 @@ watchdog:
   last_attack_timeout: 1200 # ⏳ Maximum time (in seconds) to not perform attack action
   last_attack_timeout_action: "change_channel" # 🧠 Options: "go_home" "change_channel"
 
+detection_lost:
+  # 🛑 Safety pause
+  # If the minimap (normal mode) or the player (normal / patrol mode) is not found
+  # for `timeout` seconds, the bot releases every key and sends nothing (no
+  # potions, no buffs, no watchdog actions) until both are found again.
+  enable: True
+  timeout: 3.0         # ⏱️ seconds
+
 rune_warning_cn:
   # ⚠️ Rune Warning Detection(Chinese)
   # Detects the "Please remove the rune" message on screen.

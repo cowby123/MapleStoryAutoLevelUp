@@ -12,13 +12,14 @@ bot:
   map: "gon_pig"            # 弓箭手村東部草叢 (where the character stood on 2026-10-31)
 
 key:
-  # CONFIRM: copied from config_gun.yaml (same map). The in-game hotbar on 10-31 showed
-  # Ctrl = 攻擊, Del = red potion, End = blue potion -> HP/MP may be the other way round.
-  directional_attack: "z"
-  teleport: "z"
-  jump: "alt"
-  add_hp: "end"
-  add_mp: "del"
+  # Confirmed by the player (2026-11-02): Ctrl = attack, Del = red potion (HP), End = blue potion (MP).
+  # bot.attack is "directional", so the attack key is directional_attack.
+  directional_attack: "ctrl"
+  add_hp: "delete"
+  add_mp: "end"
+  jump: "alt"               # confirmed by the player
+  teleport: ""              # not used (archer); "" = the bot jumps where a route says teleport
+  # CONFIRM: still copied from config_gun.yaml, not confirmed by the player.
   party: "p"
   return_home: "home"
 
@@ -42,5 +43,5 @@ channel_change:
 
 wingpu:
   dry_run: True             # CONFIRM: set False (or run with --wingpu_live) only after approval
-  debug_interval: 2
-  http_port: 8765           # status / debug.png / mjpeg inside the container network
+  debug_interval: 1         # the web UI refreshes every second
+  http_port: 8765           # web UI + status / debug.jpg / mjpeg (container network; wgsd proxies /app/maple/)

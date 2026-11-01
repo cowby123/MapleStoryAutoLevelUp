@@ -5,8 +5,8 @@ wingpu_check.py - offline checks of the wingpu backend (no VM, no input sent).
 
 1. key mapping: every key used in config/*.yaml and in the code maps to a
    KeyboardEvent.code the guest input path knows
-2. capturor math: crop / scale / title band / window->guest click mapping on
-   synthetic guest screens
+2. capturor: 1:1 crop / window->guest click mapping on synthetic guest
+   screens; resolution scaling of config values
 3. dry-run guard: every input path (KeyBoardController key_down/key_up/
    press_key/release_all_key, HealthMonitor/RuneSolver press_key,
    click_in_game_window) reaches the VM zero times in dry run, and the right
@@ -92,60 +92,61 @@ def check_keys():
 ### 2. capturor ###
 ######################
 def check_capturor():
-    print("2. capturor crop / scale / click mapping")
+    print("2. capturor crop / click mapping (1:1, no resize) and resolution scaling")
     from src.input.GameWindowCapturorForWingpu import WingpuCapturor, detect_client_rect
+    from src.utils.resolution import compute_scale, apply_scale, snapshot_base, map_point
 
     cfg = base_cfg()
-    exp_h, exp_w = cfg["game_window"]["size"]
-    tb = cfg["game_window"]["title_bar_height"]
     tmp = tempfile.mkdtemp()
 
-    # (a) fullscreen 1920x1080: stretch to 1282x693 + black title band
-    g = np.zeros((1080, 1920, 3), np.uint8)
-    g[:, :, 0] = (np.arange(1920) * 255 // 1919)[None, :]
-    g[:, :, 1] = (np.arange(1080) * 255 // 1079)[:, None]
+    # (a) fullscreen 1366x768: the frame IS the guest screen, clicks 1:1
+    g = np.zeros((768, 1366, 3), np.uint8)
+    g[:, :, 0] = (np.arange(1366) * 255 // 1365)[None, :]
+    g[:, :, 1] = (np.arange(768) * 255 // 767)[:, None]
     p = os.path.join(tmp, "full.png")
     cv2.imwrite(p, g)
     cap = WingpuCapturor(cfg, p)
     f = cap.get_frame()
     check(cap.rect.method == "fullscreen", f"fullscreen detected: {cap.rect}")
-    check(f.shape == (tb + exp_h, exp_w, 3), f"frame shape {f.shape} == ({tb}+{exp_h}, {exp_w}, 3)")
-    check(not f[:tb].any(), "title band black when there is nothing above the client")
-    check(cap.window_to_guest(0, tb) == (0, 0), "window (0, title_bar) -> guest (0, 0)")
-    gx, gy = cap.window_to_guest(exp_w, tb + exp_h)
-    check((gx, gy) == (1920, 1080), f"window bottom-right -> guest {gx},{gy}")
-    gx, gy = cap.window_to_guest(641, tb + 346)
-    check(abs(gx - 960) <= 1 and abs(gy - 539) <= 1, f"window centre -> guest {gx},{gy} (~960,540)")
-    # pixel round trip: a bot-frame pixel samples the guest pixel window_to_guest points at
-    for (x, y) in [(100, tb + 100), (1200, tb + 650), (640, tb + 10)]:
-        gx, gy = cap.window_to_guest(x + 0.5, y + 0.5)
-        d = np.abs(f[y, x].astype(int) - g[min(gy, 1079), min(gx, 1919)].astype(int)).max()
-        check(d <= 2, f"pixel ({x},{y}) == guest ({gx},{gy}) (diff {d})")
+    check(f.shape == (768, 1366, 3) and np.array_equal(f, g), f"frame = guest screen 1:1 {f.shape}")
+    check(cap.window_to_guest(0, 0) == (0, 0) and cap.window_to_guest(683, 384) == (683, 384),
+          "client (x, y) -> guest (x, y)")
 
-    # (b) fixed rect at scale 1.0 (windowed default size): exact copy, real title band
-    cfg2 = override_cfg(base_cfg(), {"wingpu": {"client_rect": (300, 200, exp_w, exp_h)}})
+    # (b) fixed windowed client: exact crop, clicks offset by the client origin
+    cfg2 = override_cfg(base_cfg(), {"wingpu": {"client_rect": (300, 200, 1282, 693)}})
     rng = np.random.default_rng(1)
     g2 = rng.integers(0, 256, (1080, 1920, 3), dtype=np.uint8)
     p2 = os.path.join(tmp, "win.png")
     cv2.imwrite(p2, g2)
     cap2 = WingpuCapturor(cfg2, p2)
     f2 = cap2.get_frame()
-    check(cap2.rect.method == "fixed" and cap2.rect.sx == 1.0, f"fixed rect {cap2.rect}")
-    check(np.array_equal(f2[tb:], g2[200:200 + exp_h, 300:300 + exp_w]), "client copied 1:1 (no resize)")
-    check(np.array_equal(f2[:tb], g2[200 - tb:200, 300:300 + exp_w]), "title band = real pixels above client")
-    check(cap2.window_to_guest(1140, 730) == (1440, 871), "ui_coords menu (1140,730) -> guest (1440,871)")
+    check(cap2.rect.method == "fixed", f"fixed rect {cap2.rect}")
+    check(np.array_equal(f2, g2[200:200 + 693, 300:300 + 1282]), "client copied 1:1 (no resize, no title band)")
+    check(cap2.window_to_guest(1140, 671) == (1440, 871), "client (1140,671) -> guest (1440,871)")
 
     # (c) title template finds a moved window
-    tpl = g2[200 - tb:200, 300:660].copy()
-    cfg3 = override_cfg(base_cfg(), {"wingpu": {"title_to_client": (0, tb),
-                                                "client_size_guest": (exp_w, exp_h)}})
+    tpl = g2[200 - 30:200, 300:660].copy()
+    cfg3 = override_cfg(base_cfg(), {"wingpu": {"title_to_client": (0, 30),
+                                                "client_size_guest": (1282, 693)}})
     g3 = rng.integers(0, 256, (1080, 1920, 3), dtype=np.uint8)
-    g3[150 - tb:150, 500:860] = tpl
+    g3[150 - 30:150, 500:860] = tpl
     r = detect_client_rect(g3, cfg3, tpl)
-    check((r.x, r.y, r.w, r.h) == (500, 150, exp_w, exp_h) and r.method.startswith("template"),
+    check((r.x, r.y, r.w, r.h) == (500, 150, 1282, 693) and r.method.startswith("template"),
           f"title template -> {r}")
     r = detect_client_rect(rng.integers(0, 256, (1080, 1920, 3), dtype=np.uint8), cfg3, tpl)
     check(r.method == "fullscreen", f"no template match -> fallback {r.method}")
+
+    # (d) resolution scaling: identity at the reference size, proportional elsewhere
+    check(compute_scale(700, 1296) == 1.0, "scale 1.0 at the reference 1296x700")
+    check(abs(compute_scale(768, 1366) - 1366 / 1296) < 1e-9, "auto scale = width / 1296")
+    check(map_point((648, 350), 1.0, (700, 1296), "cc") == (648, 350), "map_point identity at s=1")
+    c = base_cfg()
+    base = snapshot_base(c)
+    apply_scale(c, base, 1366 / 1296, (768, 1366))
+    check(c["directional_attack"]["range_x"] == round(350 * 1366 / 1296), "range_x scaled")
+    check(c["ui_coords"]["ui_y_start"] == round(768 - 90 * 1366 / 1296), "ui_y_start bottom anchored")
+    apply_scale(c, base, compute_scale(1080, 1920), (1080, 1920))
+    check(c["directional_attack"]["range_x"] == round(350 * 1920 / 1296), "rescaled from the base, not compounded")
 
 
 ####################
@@ -175,7 +176,7 @@ def check_dry_run():
     fake = FakeVM()
     kb.configure(cfg, live=False)
     kb.vm = fake  # even with a VM handle, dry run must not call it
-    kb.set_click_mapper(ClientRect(0, 0, 1920, 1080, "test", (693, 1282), 59).window_to_guest)
+    kb.set_click_mapper(ClientRect(0, 0, 1920, 1080, "test").window_to_guest)
 
     def exercise():
         KBC.key_down("left"); KBC.key_down("left"); KBC.key_up("left"); KBC.key_up("left")
@@ -200,7 +201,7 @@ def check_dry_run():
           "live: z / alt / end mapped")
     check(("ArrowDown", False) in keys, "live: release_all released ArrowDown")
     clicks = [m for m in fake.msgs if m["t"] == "click"]
-    check(len(clicks) == 1 and (clicks[0]["x"], clicks[0]["y"]) == (1707, 1046),
+    check(len(clicks) == 1 and (clicks[0]["x"], clicks[0]["y"]) == (1140, 730),
           f"live: click (1140,730) -> guest {[(c['x'], c['y']) for c in clicks]}")
     check(all(m["t"] in ("key", "click") for m in fake.msgs), "live: only key/click messages")
 

@@ -25,13 +25,36 @@ import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
 # Library import
 import cv2
+import numpy as np
 
 # Local import
 from src.utils.logger import logger
 from src.input.WingpuKeyboard import get_keyboard
+
+
+def json_default(o):
+    '''
+    json.dump default=: numpy scalars/arrays (detector results are np.int32/float32)
+    '''
+    if isinstance(o, np.integer):
+        return int(o)
+    if isinstance(o, np.floating):
+        return float(o)
+    if isinstance(o, np.bool_):
+        return bool(o)
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    if isinstance(o, (set, tuple)):
+        return list(o)
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+
+
+def dumps(obj, **kw):
+    return json.dumps(obj, default=json_default, ensure_ascii=False, **kw)
 
 
 def default_out_dir():
@@ -54,8 +77,12 @@ class WingpuControl:
         self.debug_dir = wcfg.get("debug_dir") or os.path.join(out, "debug")
         self.debug_interval = float(wcfg.get("debug_interval", 2.0))
         self.http_port = int(wcfg.get("http_port", 0) or 0)
+        self.debug_png = bool(wcfg.get("debug_png", False))
         self.running = bool(wcfg.get("start_running", True))
         self.quit = False
+        self.restart = False # re-exec the bot process (settings applied), see main()
+        self.pending_restart = False # settings saved but not applied yet
+        self.webui = None
         self.control_mtime = None
         self.t_last_poll = 0.0
         self.t_last_debug = 0.0
@@ -114,6 +141,30 @@ class WingpuControl:
             self.apply_run(ctl.get("run", self.running), "control file")
         return True
 
+    def release_keys(self):
+        '''
+        Release every held key (keyboard controller + the wingpu key state)
+        '''
+        kb = self.bot.kb
+        if kb is not None:
+            kb.set_command("none none none")
+            kb.release_all_key()
+        get_keyboard().release_all()
+
+    def request_restart(self, why):
+        logger.info(f"[WingpuControl] restart ({why})")
+        self.release_keys()
+        self.restart = True
+        self.quit = True
+
+    def cfg_unscaled(self):
+        '''
+        The bot's config with the resolution-scaled values put back to the
+        configured (reference-frame) values: what the settings page shows
+        '''
+        from src.input.WingpuWebUI import unscaled
+        return unscaled(self.bot.cfg, getattr(self.bot, "cfg_base", None))
+
     def request_quit(self, why):
         logger.info(f"[WingpuControl] quit ({why})")
         self.quit = True
@@ -164,7 +215,23 @@ class WingpuControl:
             "loop_fps": round(loop_fps, 2),
             "process_cpu_cores": round(cpu, 3),
             "capture": bot.capture.status() if hasattr(bot.capture, "status") else None,
-            # All coordinates below are in the bot's working frame (1296x700)
+            # All coordinates below are in the bot frame = the game client 1:1
+            "resolution": {
+                "frame_wh": list(bot.frame_hw[::-1]) if getattr(bot, "frame_hw", None) else None,
+                "ui_scale": round(getattr(bot, "scale", 1.0), 4),
+                "minimap_scale": (round(bot.minimap_scale.m, 4)
+                                  if getattr(bot, "minimap_scale", None) is not None
+                                  and bot.minimap_scale.m else None),
+            },
+            "detection": {
+                "lost_paused": getattr(bot, "is_lost_paused", False),
+                "lost_reason": getattr(bot, "lost_reason", []),
+                "minimap_age_s": (round(now - bot.t_minimap_ok, 1) if getattr(bot, "t_minimap_ok", 0) else None),
+                "player_age_s": (round(now - bot.t_player_seen, 1) if getattr(bot, "t_player_seen", 0) else None),
+                "counts": dict(getattr(bot, "det_counts", {})),
+                "hit_rate": {k: round(v / max(1, bot.det_counts.get("frames", 0)), 3)
+                             for k, v in getattr(bot, "det_counts", {}).items() if k != "frames"},
+            },
             "player": {
                 "loc": list(bot.loc_player),
                 "party_red_bar": list(bot.loc_party_red_bar),
@@ -188,6 +255,8 @@ class WingpuControl:
                         "action": bot.cmd_action} ,
             "kb_command": f"{kb.cmd_left_right} {kb.cmd_up_down} {kb.cmd_action}" if kb else None,
             "kb_enabled": kb.is_enable if kb else None,
+            "kb_hold": getattr(kb, "is_hold", False) if kb else None,
+            "pending_restart": self.pending_restart,
             "input": get_keyboard().status(),
         }
         self.status = status
@@ -197,16 +266,20 @@ class WingpuControl:
         bot = self.bot
         status = self.collect_status()
         tmp = os.path.join(self.debug_dir, ".status.json.tmp")
+        text = dumps(status, indent=1)  # serialise first: a failure must not leave a stale file
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(status, f, indent=1, ensure_ascii=False)
+            f.write(text)
         os.replace(tmp, os.path.join(self.debug_dir, "status.json"))
 
         img = bot.img_frame_debug
         if img is not None:
-            self._write_img("latest.png", img)
             ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:
                 self.debug_jpeg = buf.tobytes()
+                self._write_bytes("latest.jpg", self.debug_jpeg)
+            # PNG of the full frame costs ~10x the JPEG; only when asked for
+            if self.debug_png:
+                self._write_img("latest.png", img)
         if bot.img_route_debug is not None:
             self._write_img("latest_route.png", bot.img_route_debug)
         guest = bot.capture.get_guest_frame() if hasattr(bot.capture, "get_guest_frame") else None
@@ -219,6 +292,13 @@ class WingpuControl:
             cv2.putText(g, f"client {r}", org, cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
             g = cv2.resize(g, (g.shape[1] // 2, g.shape[0] // 2), interpolation=cv2.INTER_AREA)
             self._write_img("latest_guest.jpg", g)
+
+    def _write_bytes(self, name, data):
+        path = os.path.join(self.debug_dir, name)
+        tmp = os.path.join(self.debug_dir, "." + name)
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
 
     def _write_img(self, name, img):
         path = os.path.join(self.debug_dir, name)
@@ -235,6 +315,9 @@ class WingpuControl:
     ############
     def start_http(self):
         control = self
+        from src.input.WingpuWebUI import WebUI
+        self.webui = WebUI(self)
+        page_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webui", "index.html")
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
@@ -248,27 +331,50 @@ class WingpuControl:
                 self.end_headers()
                 self.wfile.write(body)
 
+            def _json(self, obj, code=200):
+                self._send(code, "application/json; charset=utf-8", dumps(obj).encode())
+
+            def _file(self, name, ctype):
+                p = os.path.join(control.debug_dir, name)
+                if os.path.exists(p):
+                    with open(p, "rb") as f:
+                        self._send(200, ctype, f.read())
+                else:
+                    self._send(404, "text/plain", b"no frame yet")
+
+            def _body(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                if n > 65536:
+                    raise ValueError("body too large")
+                raw = self.rfile.read(n) if n else b""
+                return json.loads(raw.decode("utf-8")) if raw else {}
+
             def do_GET(self):
-                if self.path.startswith("/status"):
-                    self._send(200, "application/json",
-                               json.dumps(control.status, ensure_ascii=False).encode())
-                elif self.path.startswith("/debug.png"):
-                    p = os.path.join(control.debug_dir, "latest.png")
-                    if os.path.exists(p):
-                        with open(p, "rb") as f:
-                            self._send(200, "image/png", f.read())
-                    else:
+                path = urlparse(self.path).path.rstrip("/") or "/"
+                if path in ("/", "/index.html"):
+                    with open(page_path, "rb") as f:
+                        self._send(200, "text/html; charset=utf-8", f.read())
+                elif path == "/status":
+                    self._json(control.status)
+                elif path == "/debug.jpg":
+                    jpg = control.debug_jpeg
+                    if jpg is None:
                         self._send(404, "text/plain", b"no frame yet")
-                elif self.path.startswith("/guest.jpg"):
-                    p = os.path.join(control.debug_dir, "latest_guest.jpg")
-                    if os.path.exists(p):
-                        with open(p, "rb") as f:
-                            self._send(200, "image/jpeg", f.read())
                     else:
-                        self._send(404, "text/plain", b"no frame yet")
-                elif self.path.startswith("/mjpeg"):
+                        self._send(200, "image/jpeg", jpg)
+                elif path == "/debug.png":
+                    self._file("latest.png" if control.debug_png else "latest.jpg",
+                               "image/png" if control.debug_png else "image/jpeg")
+                elif path == "/route.png":
+                    self._file("latest_route.png", "image/png")
+                elif path == "/guest.jpg":
+                    self._file("latest_guest.jpg", "image/jpeg")
+                elif path == "/api/config":
+                    self._json(control.webui.config())
+                elif path == "/mjpeg":
                     self.send_response(200)
                     self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+                    self.send_header("Cache-Control", "no-store")
                     self.end_headers()
                     last = None
                     try:
@@ -283,22 +389,36 @@ class WingpuControl:
                     except (BrokenPipeError, ConnectionResetError):
                         pass
                 else:
-                    self._send(200, "text/html; charset=utf-8",
-                               b"<h3>MapleStoryAutoLevelUp (wingpu)</h3><p><a href='status'>status</a> "
-                               b"<a href='debug.png'>debug.png</a> <a href='guest.jpg'>guest.jpg</a> "
-                               b"<a href='mjpeg'>mjpeg</a></p><img src='mjpeg'>")
+                    self._send(404, "text/plain", b"not found")
 
             def do_POST(self):
-                if self.path.startswith("/run"):
-                    control.apply_run(True, "http")
-                elif self.path.startswith("/pause"):
-                    control.apply_run(False, "http")
-                elif self.path.startswith("/quit"):
-                    control.request_quit("http")
-                else:
-                    self._send(404, "text/plain", b"POST /run, /pause or /quit")
+                path = urlparse(self.path).path.rstrip("/")
+                try:
+                    body = self._body()
+                except (ValueError, UnicodeDecodeError) as e:
+                    self._json({"ok": False, "errors": {"body": str(e)}}, 400)
                     return
-                self._send(200, "application/json", json.dumps({"running": control.running}).encode())
+                if path == "/run":
+                    control.apply_run(True, "http")
+                elif path == "/pause":
+                    control.apply_run(False, "http")
+                elif path == "/quit":
+                    control.request_quit("http")
+                elif path in ("/restart", "/api/restart"):
+                    control.request_restart("http")
+                elif path == "/api/config":
+                    self._json(control.webui.save(body.get("values") or {}))
+                    return
+                elif path == "/api/config/reset":
+                    self._json(control.webui.reset())
+                    return
+                elif path == "/api/live":
+                    self._json(control.webui.set_live(body))
+                    return
+                else:
+                    self._send(404, "text/plain", b"POST run, pause, quit, restart, api/config, api/live")
+                    return
+                self._json({"ok": True, "running": control.running, "restart": control.restart})
 
         self.http = ThreadingHTTPServer(("0.0.0.0", self.http_port), Handler)
         self.http.daemon_threads = True

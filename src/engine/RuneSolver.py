@@ -15,6 +15,7 @@ from src.utils.common import (find_pattern_sqdiff, draw_rectangle, screenshot,
     load_image, get_mask, nms_matches, to_opencv_hsv
 )
 from src.input.KeyBoardController import press_key
+from src.utils.resolution import scale_template, sc
 
 class RuneSolver:
     '''
@@ -56,6 +57,30 @@ class RuneSolver:
                                           cv2.IMREAD_GRAYSCALE)
         # Coordinate
         self.loc_rune = None # rune location on game screen
+
+        # Templates as loaded (reference scale); set_scale() rescales them
+        self.scale = 1.0
+        self.src = {
+            "arrows": {d: list(v) for d, v in self.img_arrows.items()},
+            "rune_warning": self.img_rune_warning,
+            "rune_warning_color": load_image(f"rune/rune_warning_{lang}.png"),
+            "runes": list(self.img_runes),
+            "rune_enable": self.img_rune_enable,
+        }
+
+    def set_scale(self, s):
+        '''
+        Rescale every template to a game frame drawn s times the reference size
+        '''
+        self.scale = s
+        src = self.src
+        self.img_arrows = {d: [scale_template(a, s) for a in v] for d, v in src["arrows"].items()}
+        warn = scale_template(src["rune_warning_color"], s)
+        self.img_rune_warning = cv2.cvtColor(warn, cv2.COLOR_BGR2GRAY) if s != 1.0 else src["rune_warning"]
+        self.img_rune_warning_mask = get_mask(warn, (0, 255, 0))
+        self.img_runes = [scale_template(r, s) for r in src["runes"]]
+        self.img_rune_enable = scale_template(src["rune_enable"], s, key=None)
+        self.hough_r = (sc(30, s), sc(35, s))
 
     def reset(self):
         self.loc_rune = None
@@ -103,8 +128,8 @@ class RuneSolver:
                 minDist=10,  # Minimum distance between centers
                 param1=100,   # Edge detector high threshold
                 param2=15,   # Circle detection threshold (smaller = more sensitive)
-                minRadius=30,
-                maxRadius=35,
+                minRadius=getattr(self, "hough_r", (30, 35))[0],
+                maxRadius=getattr(self, "hough_r", (30, 35))[1],
             )
 
             if circles is not None: # Get the highlighted arrow
@@ -277,7 +302,7 @@ class RuneSolver:
 
         # Horizontal: max distance between part's centers are small
         x_centers = [x0 + loc[0] + shape[1] // 2 for (_, loc, _, shape) in good_matches]
-        if max(x_centers) - min(x_centers) > 10:
+        if max(x_centers) - min(x_centers) > sc(10, self.scale):
             return
 
         # Vertical: check if all Y's are strictly increasing
@@ -384,8 +409,8 @@ class RuneSolver:
                 minDist=10,  # Minimum distance between centers
                 param1=100,   # Edge detector high threshold
                 param2=15,   # Circle detection threshold (smaller = more sensitive)
-                minRadius=30,
-                maxRadius=35,
+                minRadius=getattr(self, "hough_r", (30, 35))[0],
+                maxRadius=getattr(self, "hough_r", (30, 35))[1],
             )
 
             # Circle Debug

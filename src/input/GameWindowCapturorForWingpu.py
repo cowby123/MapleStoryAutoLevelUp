@@ -12,13 +12,11 @@ The wingpu SDK gives the WHOLE guest screen (BGR). This capturor:
    - fullscreen: no window found -> the whole guest screen is the client
    auto (default) tries template, then fullscreen; re-checked every
    wingpu.redetect_interval seconds.
-2. crops the client and resizes it to cfg game_window.size (693 x 1282) when the
-   size differs, so every template/coordinate of the bot keeps working;
-3. puts a title band of cfg game_window.title_bar_height rows on top (the real
-   pixels above the client when there are any, else black), so the frame has the
-   same layout as the Windows capture (title bar + client);
-4. maps game-window coordinates back to guest pixels for clicks
-   (window_to_guest), and registers that mapping with WingpuKeyboard.
+2. crops the client 1:1: no resize, no title band. The bot works on the game's
+   real pixels (exact colours) and scales its detectors to the frame size
+   (src/utils/resolution.py, MapleStoryAutoBot.on_resolution);
+3. maps client coordinates to guest pixels for clicks (window_to_guest = client
+   origin + coordinate), and registers that mapping with WingpuKeyboard.
 '''
 # Standard import
 import os
@@ -34,48 +32,31 @@ from src.utils.logger import logger
 from src.input.WingpuVM import get_vm
 from src.input.WingpuKeyboard import get_keyboard
 
-INTERPOLATION = {
-    "nearest": cv2.INTER_NEAREST,
-    "area": cv2.INTER_AREA,
-    "linear": cv2.INTER_LINEAR,
-    "cubic": cv2.INTER_CUBIC,
-}
-
 
 class ClientRect:
     '''
-    Game client area in guest pixels + how it maps to the bot's frame.
+    Game client area in guest pixels. The bot frame is this area 1:1.
     '''
-    def __init__(self, x, y, w, h, method, exp_size, title_bar_height):
+    def __init__(self, x, y, w, h, method):
         self.x, self.y, self.w, self.h = int(x), int(y), int(w), int(h)
         self.method = method
-        self.exp_h, self.exp_w = exp_size
-        self.title_bar_height = title_bar_height
-        # guest pixels per bot-frame pixel
-        self.sx = self.w / self.exp_w
-        self.sy = self.h / self.exp_h
 
     def window_to_guest(self, x, y):
         '''
-        Game window coordinate (title bar included, the coordinate space of
-        ui_coords and click_in_game_window) -> guest pixel.
+        Bot frame (client) coordinate -> guest pixel
         '''
-        gx = self.x + x * self.sx
-        gy = self.y + (y - self.title_bar_height) * self.sy
-        return int(round(gx)), int(round(gy))
+        return int(round(self.x + x)), int(round(self.y + y))
 
     def as_dict(self):
         return {"x": self.x, "y": self.y, "w": self.w, "h": self.h,
-                "method": self.method,
-                "scale_x": round(self.sx, 4), "scale_y": round(self.sy, 4)}
+                "method": self.method}
 
     def __eq__(self, other):
         return isinstance(other, ClientRect) and \
             (self.x, self.y, self.w, self.h) == (other.x, other.y, other.w, other.h)
 
     def __repr__(self):
-        return (f"{self.w}x{self.h}+{self.x}+{self.y} ({self.method}, "
-                f"scale {self.sx:.3f}x{self.sy:.3f})")
+        return f"{self.w}x{self.h}+{self.x}+{self.y} ({self.method})"
 
 
 def detect_client_rect(img, cfg, title_tpl=None):
@@ -84,8 +65,6 @@ def detect_client_rect(img, cfg, title_tpl=None):
     Pure function (no state), used by the capturor and tools/wingpu_check.py.
     '''
     wcfg = cfg.get("wingpu", {}) or {}
-    exp_size = tuple(cfg["game_window"]["size"]) # (h, w)
-    tb = cfg["game_window"]["title_bar_height"]
     gh, gw = img.shape[:2]
     mode = wcfg.get("detect", "auto")
 
@@ -95,7 +74,7 @@ def detect_client_rect(img, cfg, title_tpl=None):
         if not rect:
             raise ValueError("wingpu.detect is 'fixed' but wingpu.client_rect is empty")
         x, y, w, h = rect
-        return ClientRect(x, y, w, h, "fixed", exp_size, tb)
+        return ClientRect(x, y, w, h, "fixed")
 
     # (b) title bar template
     if title_tpl is not None and mode in ("auto", "template"):
@@ -103,18 +82,18 @@ def detect_client_rect(img, cfg, title_tpl=None):
         score, _, (tx, ty), _ = cv2.minMaxLoc(res)
         if score <= wcfg.get("title_thres", 0.05):
             dx, dy = wcfg.get("title_to_client", (0, title_tpl.shape[0]))
-            cw, ch = wcfg.get("client_size_guest", (exp_size[1], exp_size[0]))
+            cw, ch = wcfg.get("client_size_guest") or (gw - tx - dx, gh - ty - dy)
             x, y = tx + dx, ty + dy
             # clip to the guest screen (window partly off screen)
             w = min(cw, gw - x)
             h = min(ch, gh - y)
             if w > 0 and h > 0:
-                return ClientRect(x, y, w, h, f"template({score:.3f})", exp_size, tb)
+                return ClientRect(x, y, w, h, f"template({score:.3f})")
         if mode == "template":
             return None
 
     # (c) the game fills the whole guest screen
-    return ClientRect(0, 0, gw, gh, "fullscreen", exp_size, tb)
+    return ClientRect(0, 0, gw, gh, "fullscreen")
 
 
 class WingpuCapturor:
@@ -126,12 +105,9 @@ class WingpuCapturor:
         self.cfg = cfg
         self.wcfg = cfg.get("wingpu", {}) or {}
         self.window_title = cfg["game_window"]["title"]
-        self.exp_size = tuple(cfg["game_window"]["size"]) # (h, w)
-        self.title_bar_height = cfg["game_window"]["title_bar_height"]
         self.fps_limit = cfg["system"]["fps_limit_window_capturor"]
         self.redetect_interval = self.wcfg.get("redetect_interval", 5.0)
-        self.interp = INTERPOLATION[self.wcfg.get("interpolation", "nearest")]
-        self.frame = None # bot frame: title band + client, BGR
+        self.frame = None # bot frame: the game client 1:1, BGR
         self.guest = None # last full guest screen
         self.rect = None # ClientRect
         self.lock = threading.Lock()
@@ -211,22 +187,11 @@ class WingpuCapturor:
         if r is None:
             return
 
-        client = img[r.y:r.y + r.h, r.x:r.x + r.w]
-        exp_h, exp_w = self.exp_size
-        if client.shape[:2] != (exp_h, exp_w):
-            client = cv2.resize(client, (exp_w, exp_h), interpolation=self.interp)
-
-        tb = self.title_bar_height
-        if tb > 0:
-            band_h = int(round(tb * r.sy))
-            if r.y - band_h >= 0 and band_h > 0:
-                band = img[r.y - band_h:r.y, r.x:r.x + r.w]
-                band = cv2.resize(band, (exp_w, tb), interpolation=self.interp)
-            else:
-                band = np.zeros((tb, exp_w, 3), dtype=np.uint8)
-            frame = np.vstack([band, client])
+        # 1:1 crop; a view when the client is the whole screen (no copy)
+        if (r.x, r.y, r.w, r.h) == (0, 0, img.shape[1], img.shape[0]):
+            frame = img
         else:
-            frame = np.ascontiguousarray(client)
+            frame = np.ascontiguousarray(img[r.y:r.y + r.h, r.x:r.x + r.w])
 
         with self.lock:
             self.guest = img
@@ -236,7 +201,7 @@ class WingpuCapturor:
 
     def get_frame(self):
         '''
-        Latest bot frame (BGR, title band + client), or None
+        Latest bot frame (BGR, the game client 1:1), or None
         '''
         with self.lock:
             return self.frame
@@ -250,7 +215,7 @@ class WingpuCapturor:
 
     def window_to_guest(self, x, y):
         '''
-        Game window coordinate -> guest pixel (None if no client rect yet)
+        Bot frame (client) coordinate -> guest pixel (None if no client rect yet)
         '''
         r = self.rect
         if r is None:

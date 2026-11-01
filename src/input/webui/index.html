@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>楓之谷練功 Bot</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--fg:#1d2330;--mut:#667085;--line:#d9dde3;--acc:#2563eb;--ok:#15803d;--warn:#b45309;--bad:#b91c1c;--live:#dc2626}
+@media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1b2027;--fg:#e6e8eb;--mut:#9aa3ae;--line:#2c333c;--acc:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--live:#f87171}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,"Noto Sans TC","Microsoft JhengHei",sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:8px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+header h1{font-size:16px;margin:0 8px 0 0}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:13px;border:1px solid var(--line)}
+.b-ok{color:var(--ok);border-color:var(--ok)}.b-warn{color:var(--warn);border-color:var(--warn)}.b-bad{color:var(--bad);border-color:var(--bad)}
+.b-live{background:var(--live);color:#fff;border-color:var(--live);font-weight:700}
+main{max-width:1100px;margin:0 auto;padding:12px;display:grid;gap:12px;grid-template-columns:1fr}
+@media (min-width:900px){main{grid-template-columns:3fr 2fr}}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}
+section h2{font-size:15px;margin:0 0 8px}
+.wide{grid-column:1/-1}
+button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer;min-height:40px}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+button.danger{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.5}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+img.live{width:100%;height:auto;border-radius:6px;background:#000;display:block}
+table{border-collapse:collapse;width:100%}td{padding:3px 4px;border-bottom:1px solid var(--line);vertical-align:top;word-break:break-word}
+td:first-child{color:var(--mut);white-space:nowrap;width:40%}
+.bar{height:14px;border-radius:7px;background:var(--line);overflow:hidden}.bar>div{height:100%}
+pre{margin:0;font-size:12px;max-height:220px;overflow:auto;white-space:pre-wrap}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+label.f{display:flex;flex-direction:column;gap:3px;font-size:14px}
+label.f span.h{color:var(--mut);font-size:12px}
+input,select{font:inherit;padding:7px 8px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--fg);min-height:38px;width:100%}
+input[type=checkbox]{width:auto;min-height:auto}
+.err{color:var(--bad);font-size:12px}
+fieldset{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:0 0 10px}
+legend{font-weight:600;padding:0 4px}
+.switch{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;border:2px solid var(--line)}
+.switch.on{border-color:var(--live)}
+dialog{border:none;border-radius:12px;max-width:420px;width:calc(100% - 32px);background:var(--card);color:var(--fg)}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+.msg{font-size:13px;color:var(--mut)}
+</style>
+</head>
+<body>
+<header>
+  <h1>楓之谷練功 Bot</h1>
+  <span id="b-run" class="badge">讀取中…</span>
+  <span id="b-lost" class="badge" hidden></span>
+  <span id="b-input" class="badge">模擬（不送輸入）</span>
+  <span id="b-pending" class="badge b-warn" hidden>設定已儲存，重新啟動後生效</span>
+</header>
+<main>
+  <section>
+    <h2>畫面</h2>
+    <img id="live" class="live" alt="bot 偵測畫面">
+    <div class="row" style="margin-top:8px">
+      <label class="row"><input type="checkbox" id="mjpeg"> 串流（MJPEG）</label>
+      <span class="msg">不勾 = 每秒更新一次圖片</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>控制</h2>
+    <div class="row">
+      <button class="pri" onclick="post('run')">開始</button>
+      <button onclick="post('pause')">暫停</button>
+      <button onclick="restart()">重新啟動</button>
+      <button class="danger" onclick="if(confirm('結束 bot？之後要從容器重新執行。'))post('quit')">結束</button>
+    </div>
+    <p class="msg">暫停：放開所有按鍵，只看不動。重新啟動：bot 程式重新開始（套用已儲存的設定，回到模擬模式）。</p>
+    <div id="sw" class="switch">
+      <input type="checkbox" id="live-sw" style="width:22px;height:22px">
+      <div><b id="sw-text">模擬模式：不會送任何按鍵到遊戲</b><div class="msg">切到「真的輸入」要確認；預設每次重新啟動都回到模擬模式。</div></div>
+    </div>
+    <h2 style="margin-top:12px">狀態</h2>
+    <table id="st"></table>
+    <div style="margin-top:8px">
+      <div class="msg">HP / MP / EXP</div>
+      <div id="bars"></div>
+    </div>
+  </section>
+
+  <section class="wide">
+    <h2>最近的動作 <span class="msg" id="act-note"></span></h2>
+    <pre id="recent"></pre>
+  </section>
+
+  <section class="wide">
+    <h2>設定</h2>
+    <p class="msg">存到 <code id="ufile"></code>（最後一層，不改內建設定檔）。像素值是「參考尺寸 1296×700」的值，bot 會依遊戲解析度自動縮放。</p>
+    <form id="form" onsubmit="return false"></form>
+    <div class="row">
+      <button class="pri" onclick="save(true)">儲存並套用（重新啟動 bot）</button>
+      <button onclick="save(false)">只儲存</button>
+      <button onclick="loadConfig()">放棄修改</button>
+      <button class="danger" onclick="resetCfg()">清除我的設定</button>
+    </div>
+    <div id="save-msg" class="msg"></div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <h3 style="margin-top:0;color:var(--live)">切到「真的輸入」？</h3>
+  <p>bot 會真的對遊戲按鍵：移動、跳、攻擊、喝水。請先確認：</p>
+  <ul class="msg"><li>遊戲在前景，輸入法是英數</li><li>按鍵設定正確</li><li>畫面上小地圖、玩家（隊伍紅條）都有偵測到</li></ul>
+  <label class="row"><input type="checkbox" id="remember"> 記住（重新啟動 bot 後仍是真的輸入）</label>
+  <div class="row" style="margin-top:12px;justify-content:flex-end">
+    <button onclick="dlg.close()">取消</button>
+    <button class="danger" id="dlg-ok">確定，切到真的輸入</button>
+  </div>
+</dialog>
+
+<script>
+// Only relative URLs: the page may sit behind a proxy under /app/<vm>/
+if (!location.pathname.endsWith('/') && !location.pathname.endsWith('.html')) {
+  location.replace(location.pathname + '/' + location.search);
+}
+const $ = id => document.getElementById(id);
+const dlg = $('dlg');
+const LABELS = {
+  'bot.map': ['地圖', '只列出 minimaps/ 裡有的地圖'],
+  'route.files': ['路線', '不勾 = 依序使用全部路線'],
+  'bot.mode': ['模式', 'normal 照路線練功；patrol 左右巡邏；aux 只輔助'],
+  'bot.attack': ['攻擊方式', 'directional 單方向；aoe_skill 範圍技'],
+  'key.directional_attack': ['攻擊鍵（單方向）', ''],
+  'key.aoe_skill': ['範圍技鍵', ''],
+  'key.jump': ['跳躍鍵', ''],
+  'key.teleport': ['瞬移鍵', '空白 = 不用（路線要瞬移時改成跳）'],
+  'key.add_hp': ['紅水（HP）鍵', ''],
+  'key.add_mp': ['藍水（MP）鍵', ''],
+  'key.party': ['組隊視窗鍵', ''],
+  'key.return_home': ['回城卷鍵', ''],
+  'buff_skill.keys': ['Buff 技能', ''],
+  'buff_skill.cooldown': ['Buff 冷卻（秒）', ''],
+  'health_monitor.enable': ['自動喝水', ''],
+  'health_monitor.add_hp_percent': ['HP 低於 % 喝紅水', ''],
+  'health_monitor.add_mp_percent': ['MP 低於 % 喝藍水', ''],
+  'health_monitor.add_hp_cooldown': ['紅水間隔（秒）', ''],
+  'health_monitor.add_mp_cooldown': ['藍水間隔（秒）', ''],
+  'directional_attack.range_x': ['攻擊範圍 寬', '參考像素'],
+  'directional_attack.range_y': ['攻擊範圍 高', '參考像素'],
+  'directional_attack.cooldown': ['攻擊間隔（秒）', ''],
+  'aoe_skill.range_x': ['範圍技 寬', '參考像素'],
+  'aoe_skill.range_y': ['範圍技 高', '參考像素'],
+  'monster_detect.mode': ['怪物偵測方式', 'contour_only 最省'],
+  'monster_detect.diff_thres': ['怪物比對門檻', '0–1，越小越嚴'],
+  'monster_detect.search_box_margin': ['找怪範圍外擴', '參考像素'],
+  'edge_teleport.enable': ['平台邊緣自動跳回', ''],
+  'watchdog.timeout': ['卡住幾秒後隨機動作', ''],
+  'detection_lost.timeout': ['偵測不到幾秒後停手', '小地圖或玩家不見就放開所有鍵'],
+  'system.fps_limit_main': ['每秒處理幾張', '越低越省 CPU'],
+};
+const GROUPS = [
+  ['地圖與模式', ['bot.map', 'route.files', 'bot.mode', 'bot.attack']],
+  ['按鍵', ['key.directional_attack', 'key.aoe_skill', 'key.jump', 'key.teleport', 'key.add_hp', 'key.add_mp', 'key.party', 'key.return_home']],
+  ['Buff 技能', ['buff_skill.keys']],
+  ['喝水', ['health_monitor.enable', 'health_monitor.add_hp_percent', 'health_monitor.add_mp_percent', 'health_monitor.add_hp_cooldown', 'health_monitor.add_mp_cooldown']],
+  ['攻擊與偵測', ['directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown', 'aoe_skill.range_x', 'aoe_skill.range_y', 'monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search_box_margin']],
+  ['安全與其他', ['edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'system.fps_limit_main']],
+];
+let CFG = null, LIVE = false;
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)};
+  const r = await fetch('./' + path, opt);
+  const t = await r.text();
+  try { return JSON.parse(t); } catch (e) { return {ok: false, errors: {http: r.status + ' ' + t.slice(0, 200)}}; }
+}
+async function post(p) { await api(p, {}); poll(); }
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
+function rows(t, list) { t.innerHTML = list.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join(''); }
+function yes(b, t, f) { return b ? `<span class="badge b-ok">${t}</span>` : `<span class="badge b-bad">${f}</span>`; }
+
+// ---------- live status ----------
+async function poll() {
+  let s;
+  try { s = await (await fetch('./status', {cache: 'no-store'})).json(); } catch (e) { $('b-run').textContent = '連不到 bot'; $('b-run').className = 'badge b-bad'; return; }
+  if (!s || !s.time) { $('b-run').textContent = '等第一張畫面…'; return; }
+  const det = s.detection || {}, inp = s.input || {}, hm = s.hp_mp_exp || {}, res = s.resolution || {};
+  $('b-run').textContent = s.running ? '執行中' : '已暫停';
+  $('b-run').className = 'badge ' + (s.running ? 'b-ok' : 'b-warn');
+  $('b-lost').hidden = !det.lost_paused;
+  $('b-lost').textContent = '偵測不到：' + (det.lost_reason || []).map(r => r === 'minimap' ? '小地圖' : r === 'player' ? '玩家' : r).join('、') + '（停手中）';
+  $('b-lost').className = 'badge b-bad';
+  LIVE = inp.dry_run === false;
+  $('b-input').textContent = LIVE ? '真的輸入中' : '模擬（不送輸入）';
+  $('b-input').className = 'badge ' + (LIVE ? 'b-live' : '');
+  $('live-sw').checked = LIVE;
+  $('sw').className = 'switch' + (LIVE ? ' on' : '');
+  $('sw-text').textContent = LIVE ? '真的輸入：bot 正在對遊戲按鍵' : '模擬模式：不會送任何按鍵到遊戲';
+  $('b-pending').hidden = !s.pending_restart;
+  const hr = det.hit_rate || {};
+  const pct = v => v === undefined ? '-' : Math.round(v * 100) + '%';
+  const mm = s.minimap || {}, pl = s.player || {};
+  rows($('st'), [
+    ['狀態機', esc(s.state) + ' / ' + esc(s.mode) + ' / ' + esc(s.map)],
+    ['小地圖', yes(det.minimap_age_s !== null && det.minimap_age_s < 3, '有', '沒有') + ` <span class="msg">命中 ${pct(hr.minimap)}，比例 ${res.minimap_scale ?? '-'}</span>`],
+    ['玩家', yes(det.player_age_s !== null && det.player_age_s < 3, '有', '沒有') + ` <span class="msg">命中 ${pct(hr.player)}，位置 ${esc(JSON.stringify(pl.loc))}</span>`],
+    ['小地圖上的玩家', esc(JSON.stringify(mm.player_on_minimap)) + ' → 路線 ' + esc(JSON.stringify(mm.player_global))],
+    ['怪物', (s.monsters || []).length + ' 隻'],
+    ['指令', esc(`${s.command.move_x} ${s.command.move_y} ${s.command.action}`) + (s.kb_hold ? ' <span class="badge b-bad">停手</span>' : '')],
+    ['解析度', esc((res.frame_wh || []).join('×')) + `，縮放 ${res.ui_scale}`],
+    ['速度 / CPU', `${s.loop_fps} 張/秒，${s.process_cpu_cores} 核`],
+    ['擷取', s.capture ? `${s.capture.capture_fps} fps，延遲 ${s.capture.frame_age_s}s` : '-'],
+    ['更新時間', esc(s.time)],
+  ]);
+  const bar = (n, v, c) => `<div class="row" style="gap:6px"><span style="width:34px">${n}</span><div class="bar" style="flex:1"><div style="width:${Math.max(0, Math.min(100, v || 0))}%;background:${c}"></div></div><span style="width:48px;text-align:right">${v ?? '-'}%</span></div>`;
+  $('bars').innerHTML = hm.bars_found ? bar('HP', hm.hp, '#dc2626') + bar('MP', hm.mp, '#2563eb') + bar('EXP', hm.exp, '#ca8a04') : '<span class="msg">找不到 HP/MP 條</span>';
+  $('recent').textContent = (inp.recent || []).slice().reverse().join('\n') || '（還沒有）';
+  $('act-note').textContent = LIVE ? '（真的送出）' : '（模擬：只記錄、沒有送出）';
+}
+
+// ---------- image ----------
+let imgTimer = null;
+function startImage() {
+  clearInterval(imgTimer);
+  const img = $('live');
+  if ($('mjpeg').checked) { img.src = './mjpeg'; return; }
+  const load = () => { img.src = './debug.jpg?t=' + Date.now(); };
+  load();
+  imgTimer = setInterval(load, 1000);
+}
+$('mjpeg').onchange = startImage;
+
+// ---------- live switch ----------
+$('live-sw').onchange = async e => {
+  if (e.target.checked) {
+    e.target.checked = false;
+    $('remember').checked = false;
+    dlg.showModal();
+  } else {
+    const r = await api('api/live', {live: false});
+    if (!r.ok) alert(JSON.stringify(r.errors));
+    poll();
+  }
+};
+$('dlg-ok').onclick = async () => {
+  const r = await api('api/live', {live: true, confirm: 'LIVE', remember: $('remember').checked});
+  dlg.close();
+  if (!r.ok) alert(JSON.stringify(r.errors));
+  poll();
+};
+
+// ---------- settings ----------
+function fieldHtml(f, v) {
+  const [label, help] = LABELS[f.name] || [f.name, ''];
+  const id = 'f-' + f.name.replace('.', '-');
+  let input;
+  if (f.kind === 'map') {
+    input = `<select id="${id}" onchange="renderRoutes()">` + CFG.maps.filter(m => m.supported).map(m => `<option value="${esc(m.id)}" ${m.id === v ? 'selected' : ''}>${esc(m.name)}（${esc(m.id)}）</option>`).join('') + '</select>';
+  } else if (f.kind === 'routes') {
+    input = `<div id="${id}" class="row"></div>`;
+  } else if (f.kind === 'choice') {
+    input = `<select id="${id}">` + f.choices.map(c => `<option ${c === v ? 'selected' : ''}>${esc(c)}</option>`).join('') + '</select>';
+  } else if (f.kind === 'bool') {
+    input = `<input type="checkbox" id="${id}" ${v ? 'checked' : ''}>`;
+  } else if (f.kind === 'keys') {
+    input = `<div id="${id}"></div><button type="button" onclick="addBuff('','')">＋ 新增 Buff</button>`;
+  } else if (f.kind === 'num' || f.kind === 'int') {
+    input = `<input id="${id}" type="number" inputmode="decimal" step="${f.kind === 'int' ? 1 : 'any'}" min="${f.range[0]}" max="${f.range[1]}" value="${v ?? ''}">`;
+  } else {
+    input = `<input id="${id}" value="${esc(v ?? '')}" autocapitalize="off" autocomplete="off" spellcheck="false">`;
+  }
+  return `<label class="f"><b>${esc(label)}</b>${input}${help ? `<span class="h">${esc(help)}</span>` : ''}<span class="err" id="e-${id}"></span></label>`;
+}
+function renderRoutes() {
+  const map = $('f-bot-map').value, m = CFG.maps.find(x => x.id === map);
+  const cur = map === CFG.values['bot.map'] ? (CFG.values['route.files'] || []) : [];
+  $('f-route-files').innerHTML = (m ? m.routes : []).map(r => `<label class="row"><input type="checkbox" value="${esc(r)}" ${cur.includes(r) ? 'checked' : ''}> ${esc(r)}</label>`).join('') || '<span class="msg">沒有路線</span>';
+}
+function addBuff(k, cd) {
+  const d = document.createElement('div');
+  d.className = 'row buff';
+  d.style.margin = '4px 0';
+  d.innerHTML = `<input class="bk" placeholder="按鍵，例如 a" value="${esc(k)}" style="width:40%" autocapitalize="off"><input class="bc" type="number" placeholder="冷卻秒" value="${esc(cd)}" style="width:35%"><button type="button" onclick="this.parentNode.remove()">刪除</button>`;
+  $('f-buff_skill-keys').appendChild(d);
+}
+async function loadConfig() {
+  CFG = await api('api/config');
+  $('ufile').textContent = CFG.user_file;
+  const byName = Object.fromEntries(CFG.fields.map(f => [f.name, f]));
+  let html = '';
+  for (const [title, names] of GROUPS) {
+    html += `<fieldset><legend>${esc(title)}</legend><div class="grid">` + names.map(n => fieldHtml(byName[n], CFG.values[n])).join('') + '</div></fieldset>';
+  }
+  $('form').innerHTML = html;
+  renderRoutes();
+  const keys = CFG.values['buff_skill.keys'] || [], cds = CFG.values['buff_skill.cooldown'] || [];
+  keys.forEach((k, i) => addBuff(k, cds[i] ?? ''));
+  $('save-msg').textContent = '';
+}
+function collect() {
+  const v = {};
+  for (const f of CFG.fields) {
+    const id = 'f-' + f.name.replace('.', '-');
+    if (f.name === 'buff_skill.cooldown') continue;
+    if (f.kind === 'routes') { v[f.name] = [...$(id).querySelectorAll('input:checked')].map(x => x.value); continue; }
+    if (f.kind === 'keys') {
+      const rs = [...$(id).querySelectorAll('.buff')];
+      v['buff_skill.keys'] = rs.map(r => r.querySelector('.bk').value.trim()).filter(x => x);
+      v['buff_skill.cooldown'] = rs.filter(r => r.querySelector('.bk').value.trim()).map(r => r.querySelector('.bc').value);
+      continue;
+    }
+    const el = $(id);
+    if (f.kind === 'bool') v[f.name] = el.checked;
+    else v[f.name] = el.value;
+  }
+  return v;
+}
+async function save(apply) {
+  document.querySelectorAll('.err').forEach(e => e.textContent = '');
+  const r = await api('api/config', {values: collect()});
+  if (!r.ok) {
+    for (const [k, msg] of Object.entries(r.errors || {})) {
+      const el = $('e-f-' + k.replace('.', '-'));
+      if (el) el.textContent = msg; else alert(k + ': ' + msg);
+    }
+    $('save-msg').textContent = '沒有儲存：請修正紅字。';
+    return;
+  }
+  $('save-msg').textContent = '已儲存。' + (apply ? '重新啟動中…' : '按「重新啟動」後生效。');
+  if (apply) restart(); else poll();
+}
+async function resetCfg() {
+  if (!confirm('清除網頁存的所有設定（會留一份 .bak），回到內建設定？')) return;
+  await api('api/config/reset', {});
+  restart();
+}
+async function restart() {
+  $('b-run').textContent = '重新啟動中…';
+  await api('restart', {});
+  const t0 = Date.now();
+  await new Promise(r => setTimeout(r, 2500));
+  while (Date.now() - t0 < 60000) {
+    try { const s = await (await fetch('./status', {cache: 'no-store'})).json(); if (s && s.time) break; } catch (e) {}
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  await loadConfig();
+  poll();
+  startImage();
+}
+
+loadConfig();
+poll();
+setInterval(poll, 1000);
+startImage();
+</script>
+</body>
+</html>

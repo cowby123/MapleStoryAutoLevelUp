@@ -6,6 +6,7 @@
 
 system:
   platform: "wingpu"
+  opencv_threads: 1         # OpenCV thread pool size (1: same speed, 1/3 of the CPU on these image sizes)
 
 wingpu:
   # 🛑 Dry run: log every key/mouse action the bot WOULD send, send nothing.
@@ -19,15 +20,20 @@ wingpu:
   title_template: ""        # image of the window title bar (tools/wingpu_calibrate.py writes it)
   title_thres: 0.05         # TM_SQDIFF_NORMED threshold for the title template (lower = stricter)
   title_to_client: [0, 0]   # offset from the template's top-left to the client's top-left
-  client_size_guest: [1282, 693] # [w, h] client size in guest pixels when found by the template
+  client_size_guest: []     # [w, h] client size in guest pixels when found by the template ([] = to the screen edge)
   redetect_interval: 5      # seconds between client re-detection (window moved / resized)
-  interpolation: "nearest"  # resize when the client is not game_window.size: nearest | area | linear
+
+  # 📐 The bot works on the client 1:1 (no resize). Templates and pixel settings
+  # were made for the upstream 1296x700 frame and are scaled to the real frame:
+  scale: "auto"             # "auto" (= frame width / 1296) | "height" | "geometric" | a number
+  ensure_party_on_start: False # upstream opens the party window (P) at start; off: it acts before detecting anything
 
   # 🎛️ Control and debug output (default directory: /work in the container, else .)
   start_running: True       # bot acts at start when there is no control file
   control_file: ""          # default <dir>/control.json: {"run": true|false} or {"quit": true}
   debug_dir: ""             # default <dir>/debug: latest.png, latest_guest.jpg, status.json
-  debug_interval: 2         # seconds between debug outputs
+  debug_interval: 2         # seconds between debug outputs (latest.jpg, status.json)
+  debug_png: False          # also write latest.png (full-size PNG, ~10x the CPU of the JPEG)
   http_port: 0              # >0: status / debug.png / mjpeg / run / pause on this port
 
   # 🌐 Only outside the script container (network API of the wingpu manager)

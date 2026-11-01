@@ -50,6 +50,11 @@ class HealthMonitor:
                               (0, 0, 0, 0),
                               (0, 0, 0, 0)]
 
+        # HP/MP/EXP bar size limits (reference frame), scaled by set_scale()
+        self.bar_area = (2500, 5000)
+        self.t_last_frame_seen = None
+        self.last_percent = (None, None, None)
+
         logger.info("[Health Monitor] Init done")
 
     def start(self):
@@ -82,6 +87,13 @@ class HealthMonitor:
         '''
         self.enabled = False
 
+    def set_scale(self, s):
+        '''
+        Game frame scale changed: bar size limits follow, bars are searched again
+        '''
+        self.bar_area = (2500 * s * s, 5000 * s * s)
+        self.loc_size_bars = [(0, 0, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)]
+
     def update_frame(self, img_frame):
         '''
         Update frame data from main thread
@@ -105,7 +117,11 @@ class HealthMonitor:
             return None, None, None
 
         with self.frame_lock:
-            img_frame = self.img_frame.copy()
+            img_frame = self.img_frame
+        # The main loop delivers ~10 frames/s; don't redo the same frame
+        if img_frame is self.t_last_frame_seen:
+            return self.last_percent
+        self.t_last_frame_seen = img_frame
 
         # 只有第一次偵測 bar 座標，之後都用 self.loc_size_bars
         if self.loc_size_bars == [(0, 0, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)]:
@@ -115,7 +131,7 @@ class HealthMonitor:
             loc_size_bars = []
             for cnt in contours:
                 x, y, w, h = cv2.boundingRect(cnt)
-                if 4 < w/h < 10 and 2500 < w*h < 5000:
+                if 4 < w/h < 10 and self.bar_area[0] < w*h < self.bar_area[1]:
                     loc_size_bars.append((x, y, w, h))
             loc_size_bars = sorted(loc_size_bars, key=lambda bar: bar[0])
             if len(loc_size_bars) == 3:
@@ -127,7 +143,8 @@ class HealthMonitor:
         percent_bars = []
         bar_types = ["HP", "MP", "EXP"]
         for i, (x, y, w, h) in enumerate(self.loc_size_bars):
-            percent_bars.append(get_bar_percent(img_frame[y:y+int(h/2), x:x+w], bar_types[i]))
+            percent_bars.append(get_bar_percent(img_frame[y:y+h, x:x+w], bar_types[i]))
+        self.last_percent = percent_bars
         return percent_bars
 
     def _monitor_loop(self):
@@ -160,6 +177,11 @@ class HealthMonitor:
                 hp_cd    = self.cfg["health_monitor"]["add_hp_cooldown"]
                 mp_cd    = self.cfg["health_monitor"]["add_mp_cooldown"]
                 watchdog_timeout = self.cfg["health_monitor"]["return_home_watch_dog_timeout"]
+
+                # Detection lost (kb.is_hold): send nothing
+                if getattr(self.kb, "is_hold", False):
+                    self.limit_fps()
+                    continue
 
                 # Check if need to heal (with cooldown)
                 if self.cfg["health_monitor"]["force_heal"]:
