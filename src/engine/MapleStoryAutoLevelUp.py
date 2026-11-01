@@ -2045,7 +2045,18 @@ class MapleStoryAutoBot:
 
             # Process one game window frame
             self.is_frame_done = False
-            ret = self.run_once()
+            try:
+                ret = self.run_once()
+            except Exception as e: # a detector bug must not leave keys held or kill the loop
+                ret = -1
+                logger.error(f"[loop] run_once failed: {type(e).__name__}: {e}")
+                if not getattr(self, "_logged_trace", False):
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    self._logged_trace = True
+                self.kb.set_command("none none none")
+                self.kb.release_all_key()
+                time.sleep(1.0)
 
             # Only proceed if the frame is valid
             if ret == 0:

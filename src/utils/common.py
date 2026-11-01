@@ -534,7 +534,8 @@ def get_player_location_on_minimap(img_minimap, minimap_player_color=(136, 255, 
         return None
 
     # Calculate the average location of the matching pixels
-    avg = coords.mean(axis=0)[0]  # shape (1,2), so we take [0]
+    # (findNonZero is (N,1,2) or (N,2) depending on the OpenCV build)
+    avg = coords.reshape(-1, 2).mean(axis=0)
     loc_player_minimap = (int(round(avg[0])), int(round(avg[1])))
 
     return loc_player_minimap
@@ -558,7 +559,7 @@ def get_all_other_player_locations_on_minimap(img_minimap, red_bgr=(0, 0, 255)):
         if coords is not None and len(coords) >= 3:
             logger.debug(f"Found {len(coords)} red pixels with tolerance {tolerance}")
             logger.debug(f"Color range: {lower_bgr} to {upper_bgr}")
-            return [tuple(pt[0]) for pt in coords]  # List of (x, y)
+            return [(int(x), int(y)) for x, y in coords.reshape(-1, 2)]  # List of (x, y)
 
     # 如果所有容錯範圍都檢測不到，記錄調試信息
     logger.debug(f"Red dot detection failed with all tolerances: {tolerances}")
