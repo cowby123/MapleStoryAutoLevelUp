@@ -400,6 +400,13 @@ class MapleStoryAutoBot:
         '''
         return 0 if is_wingpu() else self.cfg["game_window"]["title_bar_height"]
 
+    def is_wingpu_dry_run(self):
+        '''
+        True while wingpu input is not being sent to the guest (dry run)
+        '''
+        from src.input.WingpuKeyboard import get_keyboard
+        return get_keyboard().dry_run
+
     def start(self):
         '''
         Start all threads
@@ -2074,7 +2081,9 @@ class MapleStoryAutoBot:
             self.red_dot_center_prev = None
             return 0
 
-        if self.is_time_to_change_channel():
+        if self.is_time_to_change_channel() and \
+            (not is_wingpu() or (self.cfg["channel_change"]["enable"] and
+                                 not self.is_wingpu_dry_run())):
             self.kb.set_command("none none none")
             self.kb.release_all_key()
             self.kb.disable()
@@ -2092,7 +2101,17 @@ class MapleStoryAutoBot:
             dt > self.cfg["watchdog"]["last_attack_timeout"]:
             logger.info(f"[Attack Timeout] Last attack timeout for {round(dt, 2)} seconds")
             cfg_action = self.cfg["watchdog"]["last_attack_timeout_action"]
-            if cfg_action == "change_channel":
+            # Re-arm first: otherwise a failed action repeats on every frame
+            self.t_last_attack = time.time()
+            if is_wingpu() and self.is_wingpu_dry_run():
+                # wingpu dry run: no attack is ever sent, so the timeout says nothing
+                # about the game; acting on it would block the loop (channel_change
+                # waits up to 60 s for a login button) or stop the bot (go_home)
+                logger.info(f"[Attack Timeout] dry run: skip '{cfg_action}'")
+            elif is_wingpu() and cfg_action == "change_channel" and \
+                not self.cfg["channel_change"]["enable"]:
+                logger.info("[Attack Timeout] channel_change disabled on wingpu: skip")
+            elif cfg_action == "change_channel":
                 logger.info("[Attack Timeout] Change channel!")
                 self.channel_change()
             elif cfg_action == "go_home":
