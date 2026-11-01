@@ -283,6 +283,7 @@ class MapleStoryAutoBot:
         '''
         self.monsters_info = {}
         self.monster_contour = {}
+        self.monster_color = {}
         blur = self.cfg["monster_detect"]["contour_blur"]
         for name, imgs in self.tpl_src.get("monsters", {}).items():
             pairs = []
@@ -299,6 +300,13 @@ class MapleStoryAutoBot:
                     tb = cv2.resize(tb, (max(1, tb.shape[1] // ds), max(1, tb.shape[0] // ds)),
                                     interpolation=cv2.INTER_AREA)
                 self.monster_contour[(name, i)] = tb
+                # colour template + mask at 1/ds for "color" mode
+                im_ds, mk_ds = im, pairs[i][1]
+                if ds > 1:
+                    size = (max(1, im.shape[1] // ds), max(1, im.shape[0] // ds))
+                    im_ds = cv2.resize(im, size, interpolation=cv2.INTER_AREA)
+                    mk_ds = cv2.resize(mk_ds, size, interpolation=cv2.INTER_NEAREST)
+                self.monster_color[(name, i)] = (im_ds, mk_ds)
         sizes = [im.shape[:2] for pairs in self.monsters_info.values() for im, _ in pairs]
         self.monster_min_area = min((h * w for h, w in sizes), default=0)
         self.monster_min_h = min((h for h, _ in sizes), default=sc(40, s))
@@ -944,6 +952,11 @@ class MapleStoryAutoBot:
                                           interpolation=cv2.INTER_AREA)
         elif self.cfg["bot"]["mode"] != "patrol" and mode == "grayscale":
             img_roi_gray = cv2.cvtColor(img_roi, cv2.COLOR_BGR2GRAY)
+        img_roi_ds = img_roi
+        ds = self.monster_match_downscale()
+        if mode == "color" and ds > 1:
+            img_roi_ds = cv2.resize(img_roi, (max(1, img_roi.shape[1] // ds), max(1, img_roi.shape[0] // ds)),
+                                    interpolation=cv2.INTER_AREA)
 
         monsters = []
         for monster_name, monster_imgs in self.monsters_info.items():
@@ -1029,29 +1042,43 @@ class MapleStoryAutoBot:
                             "score": res[pt[1], pt[0]],
                     })
                 elif self.cfg["monster_detect"]["mode"] == "color":
-                    if img_monster.shape[0] > img_roi.shape[0] or \
-                       img_monster.shape[1] > img_roi.shape[1]:
+                    # masked colour matching (at 1/ds: monster_detect.match_downscale)
+                    tpl_c, mask_c = self.monster_color[(monster_name, i_tpl)]
+                    if tpl_c.shape[0] > img_roi_ds.shape[0] or \
+                       tpl_c.shape[1] > img_roi_ds.shape[1]:
                         continue
                     res = cv2.matchTemplate(
-                            img_roi,
-                            img_monster,
+                            img_roi_ds,
+                            tpl_c,
                             cv2.TM_SQDIFF_NORMED,
-                            mask=mask_monster)
+                            mask=mask_c)
+                    res = np.nan_to_num(res, nan=1.0, posinf=1.0, neginf=1.0)
                     match_locations = np.where(res <= self.cfg["monster_detect"]["diff_thres"])
                     h, w = img_monster.shape[:2]
+                    th, tw = tpl_c.shape[:2]
+                    min_std = float(self.cfg["monster_detect"].get("color_min_std", 0))
                     for pt in zip(*match_locations[::-1]):
+                        # flat, blurred background (sky, far mountains) scores
+                        # like a monster with SQDIFF_NORMED; monsters have texture
+                        if min_std > 0:
+                            patch = img_roi_ds[pt[1]:pt[1] + th, pt[0]:pt[0] + tw]
+                            _, std = cv2.meanStdDev(cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY), mask=mask_c)
+                            if float(std[0][0]) < min_std:
+                                continue
                         monsters.append({
                             "name": monster_name,
-                            "position": (pt[0] + x0, pt[1] + y0),
+                            "position": (int(pt[0]) * ds + x0, int(pt[1]) * ds + y0),
                             "size": (h, w),
-                            "score": res[pt[1], pt[0]],
+                            "score": float(res[pt[1], pt[0]]),
                     })
                 else:
                     logger.error(f"Unexpected camera localization mode: {self.cfg['monster_detect']['mode']}")
                     return []
 
         # Apply Non-Maximum Suppression to monster detection
-        monsters = nms(monsters, iou_threshold=0.4)
+        # (SQDIFF scores: keep the lowest of overlapping boxes; upstream kept the worst)
+        monsters = nms(monsters, iou_threshold=0.4,
+                       lower_is_better=self.cfg["monster_detect"]["mode"] != "template_free")
 
         # Detect monster via health bar
         if self.cfg["monster_detect"]["with_enemy_hp_bar"]:

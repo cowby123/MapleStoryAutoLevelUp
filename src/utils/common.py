@@ -217,7 +217,7 @@ def load_image(path, mode=cv2.IMREAD_COLOR):
 
     return img
 
-def nms(monsters, iou_threshold=0.3):
+def nms(monsters, iou_threshold=0.3, lower_is_better=False):
     '''
     Apply Non-Maximum Suppression (NMS) to remove overlapping detections.
 
@@ -238,8 +238,8 @@ def nms(monsters, iou_threshold=0.3):
         # [x1, y1, x2, y2, score, original_data]
         boxes.append([x, y, x + w, y + h, m["score"], m])
 
-    # Sort by score descending
-    boxes.sort(key=lambda x: x[4], reverse=True)
+    # Best first (template matching scores are SQDIFF: lower is better)
+    boxes.sort(key=lambda x: x[4], reverse=not lower_is_better)
 
     keep = []
     while boxes:
