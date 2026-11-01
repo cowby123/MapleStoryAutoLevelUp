@@ -40,3 +40,10 @@ wingpu:
   url: ""
   vm: ""
   token: ""
+
+monster_detect:
+  # The game draws the world ~1.05x at 1366x768 (filtered), so monster outlines
+  # are near-black, not exactly 0,0,0 (2026-11-02, maple: black_thres 0 found
+  # template mobs in 2 of 41 hunting frames, 30 in 34 of 41).
+  black_thres: 30           # outline pixel = every channel <= this (0 = exact black, upstream)
+  match_downscale: 2        # contour matching at 1/2 size (same detections on the fixtures, less CPU)

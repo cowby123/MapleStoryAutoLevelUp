@@ -192,61 +192,76 @@ def apply_scale(cfg, base, s, frame_hw):
                 f"{cfg['directional_attack']['range_x']}, ui_y_start {cfg['ui_coords']['ui_y_start']}")
 
 
+def _grad(img):
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    return cv2.magnitude(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))
+
+
 class MinimapScale:
     '''
     Scale m of the live minimap relative to minimaps/<map>/map.png (the route
     maps' pixel space): live_minimap_px = m * route_px. Measured by matching the
     live minimap, resized by 1/m, against map.png over a range of m.
+
+    The minimap window is translucent: its background is the game world behind
+    it, so colours of the empty parts change with where the player stands
+    (score 0.08 over sky, 0.23 over trees on maple, 2026-11-02). The scale is
+    therefore matched on gradient magnitude (edges of the map content), with
+    TM_CCOEFF_NORMED (0.76-0.80 on all saved frames; the location found by plain
+    colour matching was right on every frame, only its score moved).
     '''
-    def __init__(self, img_map, thres=0.15):
+    def __init__(self, img_map, thres=0.6):
         self.img_map = img_map
+        self.map_grad = _grad(img_map) if img_map is not None else None
         self.thres = thres
         self.m = None      # measured scale, None until a good match
         self.score = None
 
     def measure(self, img_minimap, guess=1.0):
         '''
-        Returns (m, score) of the best match, sets self.m when score < thres.
+        Returns (m, score) of the best match (score: higher = better),
+        sets self.m when score >= thres.
         '''
         if self.img_map is None or img_minimap is None:
             return None, None
         mh, mw = img_minimap.shape[:2]
         if mh < 20 or mw < 20:
             return None, None
-        # leave out the edges (window frame, player dots move)
-        tpl = img_minimap[3:mh - 3, 3:mw - 3]
-        best = (1.0, None)
+        tpl = _grad(img_minimap[3:mh - 3, 3:mw - 3])
+        best = (-1.0, None)
 
         def score_at(m):
             t = cv2.resize(tpl, (max(1, int(round(tpl.shape[1] / m))),
                                  max(1, int(round(tpl.shape[0] / m)))),
                            interpolation=cv2.INTER_AREA)
-            if t.shape[0] > self.img_map.shape[0] or t.shape[1] > self.img_map.shape[1]:
-                return 1.0
-            r = cv2.matchTemplate(self.img_map, t, cv2.TM_SQDIFF_NORMED)
-            return float(cv2.minMaxLoc(r)[0])
+            if t.shape[0] > self.map_grad.shape[0] or t.shape[1] > self.map_grad.shape[1]:
+                return -1.0
+            r = cv2.matchTemplate(self.map_grad, t, cv2.TM_CCOEFF_NORMED)
+            return float(cv2.minMaxLoc(r)[1])
 
         lo, hi = max(0.5, guess * 0.8), guess * 1.25
         for m in np.arange(lo, hi, 0.01):
             v = score_at(m)
-            if v < best[0]:
+            if v > best[0]:
                 best = (v, m)
         if best[1] is not None:
             for m in np.arange(best[1] - 0.01, best[1] + 0.0101, 0.0025):
                 v = score_at(m)
-                if v < best[0]:
+                if v > best[0]:
                     best = (v, m)
         score, m = best
-        if m is not None and score < self.thres:
+        if m is not None and score >= self.thres:
             self.m, self.score = float(m), score
         return m, score
 
-    def to_route(self, img_minimap):
+    def to_route(self, img_minimap, fallback=1.0):
         '''
-        Live minimap -> route-map pixel scale (INTER_AREA), or as is when m ~ 1
+        Live minimap -> route-map pixel scale (INTER_AREA). Uses the measured m,
+        else `fallback` (the UI scale).
         '''
-        if self.m is None or abs(self.m - 1.0) < 1e-3:
+        m = self.m or fallback
+        if abs(m - 1.0) < 1e-3:
             return img_minimap
         h, w = img_minimap.shape[:2]
-        return cv2.resize(img_minimap, (max(1, int(round(w / self.m))), max(1, int(round(h / self.m)))),
+        return cv2.resize(img_minimap, (max(1, int(round(w / m))), max(1, int(round(h / m)))),
                           interpolation=cv2.INTER_AREA)

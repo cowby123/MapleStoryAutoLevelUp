@@ -291,9 +291,14 @@ class MapleStoryAutoBot:
                 for im in (img, cv2.flip(img, 1)):
                     pairs.append((im, get_mask(im, GREEN)))
             self.monsters_info[name] = pairs
+            ds = self.monster_match_downscale()
             for i, (im, _) in enumerate(pairs):
                 black = np.all(im == [0, 0, 0], axis=2).astype(np.uint8) * 255
-                self.monster_contour[(name, i)] = cv2.GaussianBlur(black, (blur, blur), 0)
+                tb = cv2.GaussianBlur(black, (blur, blur), 0)
+                if ds > 1:
+                    tb = cv2.resize(tb, (max(1, tb.shape[1] // ds), max(1, tb.shape[0] // ds)),
+                                    interpolation=cv2.INTER_AREA)
+                self.monster_contour[(name, i)] = tb
         sizes = [im.shape[:2] for pairs in self.monsters_info.values() for im, _ in pairs]
         self.monster_min_area = min((h * w for h, w in sizes), default=0)
         self.monster_min_h = min((h for h, _ in sizes), default=sc(40, s))
@@ -305,6 +310,13 @@ class MapleStoryAutoBot:
         self.img_login_button = scale_template(self.tpl_src["login_button"], s, key=None)
         if self.rune_solver is not None:
             self.rune_solver.set_scale(s)
+
+    def monster_match_downscale(self):
+        '''
+        contour_only matching runs on the blurred outline masks shrunk by this
+        factor (1 = upstream). matchTemplate was ~80% of the bot's CPU.
+        '''
+        return max(1, int(self.cfg["monster_detect"].get("match_downscale", 1)))
 
     def on_resolution(self, h, w):
         '''
@@ -606,11 +618,32 @@ class MapleStoryAutoBot:
         boxs = []
         for c in contours:
             x, y, w, h = cv2.boundingRect(c)
-            area = cv2.contourArea(c)
+            if not (h_min <= h <= h_max and 1 <= w <= w_max):
+                continue
+            # fill = red pixels in the box (contourArea of a 5-6 px high bar
+            # undercounts it: the bar with its light top row read 0.49, missed)
+            area = cv2.countNonZero(mask_red[y:y+h, x:x+w])
             fill_rate = float(area) / (h*w)
-            if h_min <= h <= h_max and 1 <= w <= w_max and area_min <= area and fill_rate >= 0.7:
+            if area_min <= area and fill_rate >= 0.6 and self.has_dark_frame(img, x, y, w, h):
                 boxs.append((x + x0, y + y0, w, h))
         return boxs
+
+    @staticmethod
+    def has_dark_frame(img, x, y, w, h):
+        '''
+        The party HP bar sits in a black frame: the rows just above and below
+        the red part are dark (red flowers / damage numbers / potions are not)
+        '''
+        # (a light highlight row can sit between the red and the frame: look
+        #  up to 3 rows away; measured on maple: frame 1-2 rows above/below)
+        if y < 3 or y + h + 3 > img.shape[0] or w < 3:
+            return False
+
+        def dark_row(yy):
+            return float(np.mean(img[yy, x:x + w].max(axis=1) < 90)) >= 0.8
+
+        return any(dark_row(y - d) for d in (1, 2, 3)) and \
+            any(dark_row(y + h - 1 + d) for d in (1, 2, 3))
 
     def get_player_location_by_party_red_bar(self):
         '''
@@ -893,11 +926,22 @@ class MapleStoryAutoBot:
         img_roi_gray = None
         if self.cfg["bot"]["mode"] != "patrol" and mode == "contour_only":
             # Black outline pixels of the ROI, once for all templates
-            mask_roi = np.all(img_roi == [0, 0, 0], axis=2).astype(np.uint8) * 255
+            # (black_thres > 0: sprites the game draws scaled are filtered, their
+            #  outline is near-black, not exactly 0,0,0)
+            bt = int(self.cfg["monster_detect"].get("black_thres", 0))
+            if bt > 0:
+                mask_roi = cv2.inRange(img_roi, (0, 0, 0), (bt, bt, bt))
+            else:
+                mask_roi = np.all(img_roi == [0, 0, 0], axis=2).astype(np.uint8) * 255
             # Zero out mask inside this region (ignore player's own character)
             mask_roi[char_y_min:char_y_max, char_x_min:char_x_max] = 0
             blur = self.cfg["monster_detect"]["contour_blur"]
             img_roi_blur = cv2.GaussianBlur(mask_roi, (blur, blur), 0)
+            ds = self.monster_match_downscale()
+            if ds > 1:
+                img_roi_blur = cv2.resize(img_roi_blur, (max(1, img_roi_blur.shape[1] // ds),
+                                                         max(1, img_roi_blur.shape[0] // ds)),
+                                          interpolation=cv2.INTER_AREA)
         elif self.cfg["bot"]["mode"] != "patrol" and mode == "grayscale":
             img_roi_gray = cv2.cvtColor(img_roi, cv2.COLOR_BGR2GRAY)
 
@@ -957,12 +1001,13 @@ class MapleStoryAutoBot:
                     match_locations = np.where(res <= self.cfg["monster_detect"]["diff_thres"])
 
                     h, w = img_monster.shape[:2]
+                    ds = self.monster_match_downscale()
                     for pt in zip(*match_locations[::-1]):
                         monsters.append({
                             "name": monster_name,
-                            "position": (pt[0] + x0, pt[1] + y0),
+                            "position": (int(pt[0]) * ds + x0, int(pt[1]) * ds + y0),
                             "size": (h, w),
-                            "score": res[pt[1], pt[0]],
+                            "score": float(res[pt[1], pt[0]]),
                         })
                 elif self.cfg["monster_detect"]["mode"] == "grayscale":
                     img_monster_gray = cv2.cvtColor(img_monster, cv2.COLOR_BGR2GRAY)
@@ -1841,9 +1886,9 @@ class MapleStoryAutoBot:
                 else:
                     logger.warning(f"[minimap] minimap does not match minimaps/"
                                    f"{self.cfg['bot']['map']}/map.png (best {m}, score {score}); "
-                                   "wrong map selected?")
+                                   f"wrong map selected? using the ui scale {self.scale:.4f} meanwhile")
             if self.minimap_scale is not None:
-                self.img_minimap_route = self.minimap_scale.to_route(self.img_minimap)
+                self.img_minimap_route = self.minimap_scale.to_route(self.img_minimap, self.scale)
             else:
                 self.img_minimap_route = self.img_minimap
 
@@ -1896,15 +1941,15 @@ class MapleStoryAutoBot:
             loc_player_minimap = get_player_location_on_minimap(
                                     self.img_minimap,
                                     minimap_player_color=self.cfg["minimap"]["player_color"])
-        mm = self.minimap_scale.m if (self.minimap_scale is not None and
-                                      self.minimap_scale.m) else 1.0
+        if self.minimap_scale is None:
+            mm = 1.0
+        else:
+            mm = self.minimap_scale.m or self.scale
         if loc_player_minimap:
             self.loc_player_minimap = (int(round(loc_player_minimap[0] / mm)),
                                        int(round(loc_player_minimap[1] / mm)))
             self.det_counts["player_dot"] += 1
-            if self.cfg["bot"]["mode"] != "normal" or self.minimap_scale is None or \
-                    self.minimap_scale.m is not None:
-                self.t_minimap_ok = time.time()
+            self.t_minimap_ok = time.time()
 
         # Get other player location on minimap
         loc_other_players = get_all_other_player_locations_on_minimap(
@@ -1932,6 +1977,7 @@ class MapleStoryAutoBot:
                             f"PAUSED: {', '.join(self.lost_reason)} not found",
                             (10, sc(400, self.scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
                 self.update_info_on_img_frame_debug()
+                self.img_frame_debug_done = self.img_frame_debug
             self.t_last_frame = time.time()
             return 0
 
@@ -1998,6 +2044,9 @@ class MapleStoryAutoBot:
 
         # Print text on debug image
         self.update_info_on_img_frame_debug()
+        # finished debug image (img_frame_debug is a fresh, unannotated copy
+        # while the next frame is being processed)
+        self.img_frame_debug_done = self.img_frame_debug
 
         # Save debug window to video
         if self.video_writer:

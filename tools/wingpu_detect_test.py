@@ -119,6 +119,9 @@ def make_bot(cfg_name, scale=None):
     return bot
 
 
+EXPECT_LOC = None
+
+
 def run(frames, cfg_name, scale=None, out=None, quiet=False):
     bot = make_bot(cfg_name, scale)
     if out:
@@ -146,7 +149,10 @@ def run(frames, cfg_name, scale=None, out=None, quiet=False):
         mm_ok = d["minimap"] > 0
         dot = d["player_dot"] > 0
         gscore = getattr(bot, "minimap_global_score", None)
-        global_ok = dot and gscore is not None and gscore < 0.2
+        # a small map's minimap shows the whole map, so the minimap's position in
+        # map.png must be the same on every frame (--expect_minimap_loc); its
+        # score moves with the translucent minimap background, the position must not
+        global_ok = dot and gscore is not None and             (EXPECT_LOC is None or tuple(int(v) for v in bot.loc_minimap_global) == EXPECT_LOC)
         player = d["player"] > 0
         hits["minimap"] += mm_ok
         hits["player_dot"] += dot
@@ -161,7 +167,7 @@ def run(frames, cfg_name, scale=None, out=None, quiet=False):
                   f"mm={bot.minimap_rect if mm_ok else None} "
                   f"m={bot.minimap_scale.m if bot.minimap_scale and bot.minimap_scale.m else None} "
                   f"dot={bot.loc_player_minimap if dot else None} "
-                  f"glob={bot.loc_player_global}/{round(gscore, 3) if gscore is not None else None} "
+                  f"glob={bot.loc_player_global} mm@{tuple(int(v) for v in bot.loc_minimap_global)}/{round(gscore, 3) if gscore is not None else None} "
                   f"player={tuple(int(v) for v in bot.loc_player) if player else None} "
                   f"mobs={len(bot.monsters)}{mons[:3]} "
                   f"hp/mp/exp={[round(v, 1) if v is not None else None for v in hp]} "
@@ -184,7 +190,12 @@ def main():
     ap.add_argument("--sweep", default="", help="comma separated scales: hit rates per scale")
     ap.add_argument("--out", default="")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--expect_minimap_loc", default="",
+                    help="x,y: the minimap's position in map.png that every frame must give (global_ok)")
     args = ap.parse_args()
+    global EXPECT_LOC
+    if args.expect_minimap_loc:
+        EXPECT_LOC = tuple(int(v) for v in args.expect_minimap_loc.split(","))
     frames = sorted(glob.glob(args.frames))
     if args.limit:
         frames = frames[:args.limit]

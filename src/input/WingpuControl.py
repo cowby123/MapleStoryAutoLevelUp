@@ -271,7 +271,9 @@ class WingpuControl:
             f.write(text)
         os.replace(tmp, os.path.join(self.debug_dir, "status.json"))
 
-        img = bot.img_frame_debug
+        img = getattr(bot, "img_frame_debug_done", None)
+        if img is None:
+            img = bot.img_frame_debug
         if img is not None:
             ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:
