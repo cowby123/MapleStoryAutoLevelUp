@@ -30,6 +30,7 @@ os.chdir(ROOT)
 
 # Library import
 import cv2  # noqa: E402
+cv2.setNumThreads(1)  # like the bot on wingpu (system.opencv_threads)
 
 # Local import
 from src.utils.logger import logger  # noqa: E402
@@ -106,6 +107,8 @@ def make_bot(cfg_name, scale=None):
     if scale is not None:
         cfg.setdefault("wingpu", {})["scale"] = scale
     cfg["profiler"]["enable"] = True
+    # every frame is a standalone test: run every detector on every frame
+    cfg["monster_detect"]["interval_frames"] = 1
     bot = MapleStoryAutoBot(Args())
     if bot.load_config(cfg) != 0:
         raise SystemExit("load_config failed")

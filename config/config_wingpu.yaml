@@ -6,6 +6,7 @@
 
 system:
   platform: "wingpu"
+  fps_limit_window_capturor: 10 # read the guest screen as often as the main loop runs (upstream 15)
   opencv_threads: 1         # OpenCV thread pool size (1: same speed, 1/3 of the CPU on these image sizes)
 
 wingpu:
@@ -54,3 +55,6 @@ monster_detect:
   color_min_std: 30         # grey std-dev a match must have (flat background has 11-36, pigs 33-87)
   black_thres: 30           # contour_only: outline pixel = every channel <= this (0 = exact black, upstream)
   match_downscale: 2        # template matching at 1/2 size (contour_only, color)
+  color_prefilter: True     # color: match at 1/4 first, then only around candidates (same hits on the fixtures, ~half the CPU)
+  color_prefilter_thres: 0.16
+  interval_frames: 2        # look for monsters every 2nd frame (5/s at fps_limit_main 10), reuse the result in between

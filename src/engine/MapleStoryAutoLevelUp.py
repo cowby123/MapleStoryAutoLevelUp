@@ -284,6 +284,7 @@ class MapleStoryAutoBot:
         self.monsters_info = {}
         self.monster_contour = {}
         self.monster_color = {}
+        self.monster_color_pre = {}
         blur = self.cfg["monster_detect"]["contour_blur"]
         for name, imgs in self.tpl_src.get("monsters", {}).items():
             pairs = []
@@ -307,6 +308,11 @@ class MapleStoryAutoBot:
                     im_ds = cv2.resize(im, size, interpolation=cv2.INTER_AREA)
                     mk_ds = cv2.resize(mk_ds, size, interpolation=cv2.INTER_NEAREST)
                 self.monster_color[(name, i)] = (im_ds, mk_ds)
+                if self.cfg["monster_detect"].get("color_prefilter", False):
+                    size = (max(1, im_ds.shape[1] // 2), max(1, im_ds.shape[0] // 2))
+                    self.monster_color_pre[(name, i)] = (
+                        cv2.resize(im_ds, size, interpolation=cv2.INTER_AREA),
+                        cv2.resize(mk_ds, size, interpolation=cv2.INTER_NEAREST))
         sizes = [im.shape[:2] for pairs in self.monsters_info.values() for im, _ in pairs]
         self.monster_min_area = min((h * w for h, w in sizes), default=0)
         self.monster_min_h = min((h for h, _ in sizes), default=sc(40, s))
@@ -318,6 +324,46 @@ class MapleStoryAutoBot:
         self.img_login_button = scale_template(self.tpl_src["login_button"], s, key=None)
         if self.rune_solver is not None:
             self.rune_solver.set_scale(s)
+
+    def color_matches(self, img_ds, img_pre, name, i_tpl):
+        '''
+        "color" mode: (x, y, score) in img_ds pixels where the masked template
+        matches with SQDIFF_NORMED <= diff_thres. With the prefilter, the
+        template is first matched at half that size (loose threshold) and only
+        the windows around those candidates are matched at full size
+        (fixtures: same frames with hits, half the CPU).
+        '''
+        thr = self.cfg["monster_detect"]["diff_thres"]
+        tpl, mask = self.monster_color[(name, i_tpl)]
+        th, tw = tpl.shape[:2]
+        if th > img_ds.shape[0] or tw > img_ds.shape[1]:
+            return []
+        windows = [(0, 0, img_ds.shape[1], img_ds.shape[0])]
+        pre = self.monster_color_pre.get((name, i_tpl)) if img_pre is not None else None
+        if pre is not None and pre[0].shape[0] <= img_pre.shape[0] and pre[0].shape[1] <= img_pre.shape[1]:
+            res = cv2.matchTemplate(img_pre, pre[0], cv2.TM_SQDIFF_NORMED, mask=pre[1])
+            res = np.nan_to_num(res, nan=1.0, posinf=1.0, neginf=1.0)
+            cand = (res <= float(self.cfg["monster_detect"].get("color_prefilter_thres", 0.16))).astype(np.uint8)
+            if not cand.any():
+                return []
+            n, _, stats, _ = cv2.connectedComponentsWithStats(cand, connectivity=8)
+            windows = []
+            for i in range(1, n):
+                x, y, w, h = stats[i][:4]
+                wx0, wy0 = max(0, 2 * x - 3), max(0, 2 * y - 3)
+                wx1 = min(img_ds.shape[1], 2 * (x + w) + 3 + tw)
+                wy1 = min(img_ds.shape[0], 2 * (y + h) + 3 + th)
+                windows.append((wx0, wy0, wx1, wy1))
+        out = []
+        for (wx0, wy0, wx1, wy1) in windows:
+            win = img_ds[wy0:wy1, wx0:wx1]
+            if win.shape[0] < th or win.shape[1] < tw:
+                continue
+            res = cv2.matchTemplate(win, tpl, cv2.TM_SQDIFF_NORMED, mask=mask)
+            res = np.nan_to_num(res, nan=1.0, posinf=1.0, neginf=1.0)
+            ys, xs = np.where(res <= thr)
+            out += [(int(x) + wx0, int(y) + wy0, float(res[y, x])) for y, x in zip(ys, xs)]
+        return out
 
     def monster_match_downscale(self):
         '''
@@ -953,10 +999,15 @@ class MapleStoryAutoBot:
         elif self.cfg["bot"]["mode"] != "patrol" and mode == "grayscale":
             img_roi_gray = cv2.cvtColor(img_roi, cv2.COLOR_BGR2GRAY)
         img_roi_ds = img_roi
+        img_roi_pre = None
         ds = self.monster_match_downscale()
         if mode == "color" and ds > 1:
             img_roi_ds = cv2.resize(img_roi, (max(1, img_roi.shape[1] // ds), max(1, img_roi.shape[0] // ds)),
                                     interpolation=cv2.INTER_AREA)
+        if mode == "color" and self.monster_color_pre:
+            img_roi_pre = cv2.resize(img_roi_ds, (max(1, img_roi_ds.shape[1] // 2),
+                                                  max(1, img_roi_ds.shape[0] // 2)),
+                                     interpolation=cv2.INTER_AREA)
 
         monsters = []
         for monster_name, monster_imgs in self.monsters_info.items():
@@ -1047,17 +1098,12 @@ class MapleStoryAutoBot:
                     if tpl_c.shape[0] > img_roi_ds.shape[0] or \
                        tpl_c.shape[1] > img_roi_ds.shape[1]:
                         continue
-                    res = cv2.matchTemplate(
-                            img_roi_ds,
-                            tpl_c,
-                            cv2.TM_SQDIFF_NORMED,
-                            mask=mask_c)
-                    res = np.nan_to_num(res, nan=1.0, posinf=1.0, neginf=1.0)
-                    match_locations = np.where(res <= self.cfg["monster_detect"]["diff_thres"])
+                    matches = self.color_matches(img_roi_ds, img_roi_pre, monster_name, i_tpl)
                     h, w = img_monster.shape[:2]
                     th, tw = tpl_c.shape[:2]
                     min_std = float(self.cfg["monster_detect"].get("color_min_std", 0))
-                    for pt in zip(*match_locations[::-1]):
+                    for (px, py, score) in matches:
+                        pt = (px, py)
                         # flat, blurred background (sky, far mountains) scores
                         # like a monster with SQDIFF_NORMED; monsters have texture
                         if min_std > 0:
@@ -1069,7 +1115,7 @@ class MapleStoryAutoBot:
                             "name": monster_name,
                             "position": (int(pt[0]) * ds + x0, int(pt[1]) * ds + y0),
                             "size": (h, w),
-                            "score": float(res[pt[1], pt[0]]),
+                            "score": score,
                     })
                 else:
                     logger.error(f"Unexpected camera localization mode: {self.cfg['monster_detect']['mode']}")
@@ -1720,8 +1766,15 @@ class MapleStoryAutoBot:
             self.monsters = []
             return
 
-        # Get monsters in the search box
-        self.monsters = self.get_monsters_in_range((x0, y0), (x1, y1))
+        # Get monsters in the search box (every interval_frames frames; in
+        # between the last result is used: halves the bot's biggest CPU cost)
+        every = max(1, int(self.cfg["monster_detect"].get("interval_frames", 1)))
+        self.n_mob_frames = getattr(self, "n_mob_frames", 0) + 1
+        if every == 1 or self.n_mob_frames % every == 1 or not hasattr(self, "_mob_box"):
+            self.monsters = self.get_monsters_in_range((x0, y0), (x1, y1))
+            self._mob_box = (x0, y0, x1, y1)
+            if self.monsters:
+                self.det_counts["monsters"] += 1
 
         # Check if no mob to attack
         if len(self.monsters) == 0:
