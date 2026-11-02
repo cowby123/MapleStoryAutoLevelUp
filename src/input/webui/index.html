@@ -314,7 +314,8 @@ function fieldHtml(f, v) {
   } else {
     input = `<input id="${id}" value="${esc(v ?? '')}" autocapitalize="off" autocomplete="off" spellcheck="false">`;
   }
-  return `<label class="f"><b>${esc(label)}</b>${input}${help ? `<span class="h">${esc(help)}</span>` : ''}<span class="err" id="e-${id}"></span></label>`;
+  const span = f.kind === 'buffs' ? ' style="grid-column:1/-1"' : '';
+  return `<label class="f"${span}><b>${esc(label)}</b>${input}${help ? `<span class="h">${esc(help)}</span>` : ''}<span class="err" id="e-${id}"></span></label>`;
 }
 function renderRoutes() {
   const map = $('f-bot-map').value, m = CFG.maps.find(x => x.id === map);
