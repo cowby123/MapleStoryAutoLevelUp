@@ -60,6 +60,9 @@ directional_attack:
   wedge_slope: 4             # 📐 the wedge grows 1 px up and down every this many px forward
   wedge_center_height: 28    # ↕️ centre line above the feet
   wedge_feet_offset: 27      # ↕️ feet below the bot's player position (measured: maple, party bar)
+  stand_while_target: False  # ✅ stand and shoot while a monster is in reach (the route does not walk between shots)
+  target_hold_s: 0.5         # ⏱️ keep standing this long after the last target was seen (detection gaps)
+  target_commit_s: 0.6       # ⏱️ keep shooting the same side at least this long while it still has a target
   dead_zone_action: "ignore"   # monster only inside the dead zone: "ignore" (not a target, just follow the route; default) | "back_off" (step away)
 
 aoe_skill:

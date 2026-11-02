@@ -1906,6 +1906,8 @@ class MapleStoryAutoBot:
 
         # Check if no mob to attack
         if len(self.monsters) == 0:
+            if self.cfg["bot"]["attack"] == "directional":
+                self.stand_while_target(None, None, None, False)
             return
 
         # Update attack command
@@ -1920,6 +1922,10 @@ class MapleStoryAutoBot:
             monster_right = self.get_nearest_monster(is_left = False)
             # Determine attack direction
             attack_direction = self.get_attack_direction(monster_left, monster_right)
+            if self.cfg["directional_attack"].get("stand_while_target", False):
+                self.stand_while_target(attack_direction, monster_left, monster_right,
+                                        time.time() - self.t_last_attack > cooldown)
+                return
             # Attack Command
             if time.time() - self.t_last_attack > cooldown and attack_direction is not None:
                 self.cmd_action = "attack"
@@ -1935,6 +1941,48 @@ class MapleStoryAutoBot:
                 self.back_off_from_dead_zone()
             else:
                 self.why("attack_cooldown", dir=attack_direction)
+
+    def stand_while_target(self, attack_direction, monster_left, monster_right, ready):
+        '''
+        directional_attack.stand_while_target: while a monster is in reach (or
+        was, in the last target_hold_s), stand and shoot -- the route does not
+        walk the character between shots, and the side it shoots at only
+        changes after target_commit_s (or when the old side has no target).
+        Upstream (off): every shot turns toward the target and the next frame
+        the route walks the other way (2026-11-02 maple trace: 705 of 740
+        left/right flips in 4 min were route <-> attack).
+        '''
+        da = self.cfg["directional_attack"]
+        if not da.get("stand_while_target", False):
+            return
+        now = time.time()
+        hold = float(da.get("target_hold_s", 0.5))
+        commit = float(da.get("target_commit_s", 0.6))
+        side = getattr(self, "target_side", None)
+        t_side = getattr(self, "t_target_side", 0.0)
+        if attack_direction is not None:
+            # hysteresis: keep shooting the same side while it still has a target
+            if side and attack_direction != side and now - t_side < commit and \
+                    (monster_left if side == "left" else monster_right) is not None:
+                attack_direction = side
+            if attack_direction != side:
+                self.target_side, self.t_target_side = attack_direction, now
+            self.t_target_seen = now
+        elif side is None or now - getattr(self, "t_target_seen", 0.0) > hold:
+            self.target_side = None
+            return # no target for a while: the route decides
+        side = self.target_side
+        tgt = monster_left if side == "left" else monster_right
+        if ready and attack_direction is not None:
+            self.cmd_move_x, self.cmd_action = side, "attack"   # face the target (one frame) and shoot
+            self.t_last_attack = now
+            self.why("attack_target", dir=side, mode="stand",
+                     target=list(self.monster_box(tgt)) if tgt else None)
+        else:
+            self.cmd_move_x, self.cmd_action = "none", "none"   # stand still between shots
+            self.why("stand_target", dir=side, waiting="cooldown" if attack_direction else "hold")
+        if not self.is_on_ladder:
+            self.cmd_move_y = "none"
 
     def back_off_from_dead_zone(self):
         '''
