@@ -75,8 +75,14 @@ docker exec -d wingpu-ct-maple sh -c "cd /work/MapleStoryAutoLevelUp && exec /wo
 - **模擬 / 真的輸入開關**：預設模擬。切到真的輸入要在對話框按確認（伺服器端也要 `confirm: "LIVE"`）；
   不勾「記住」時只到 bot 重新啟動為止，勾了才寫 `wingpu.dry_run: false` + `wingpu.remember_live: true` 到使用者設定。
 - 設定：地圖（`minimaps/` 裡、`config_data.yaml` 有怪物資料的）、路線（`route.files`，不勾 = 全部）、模式、攻擊方式、按鍵、
-  Buff（按鍵 + 冷卻）、喝水門檻與間隔、攻擊範圍、怪物偵測、偵測不到幾秒停手、每秒處理張數。按鍵名稱用 `WingpuKeyboard.KEY_MAP` 驗證，
+  Buff、喝水門檻與間隔、玩家偵測方式、攻擊範圍、怪物偵測與找怪範圍、偵測不到幾秒停手、每秒處理張數。按鍵名稱用 `WingpuKeyboard.KEY_MAP` 驗證，
   錯誤會標在欄位下。「儲存並套用」= 存檔 + 重新啟動 bot。
+- **Buff 編輯**：一列一個 Buff：名稱（可空）、按鍵、冷卻秒數、啟用、啟動時先放。存成引擎原本讀的 `buff_skill.keys` / `cooldown`
+  （只有啟用的）加 `cast_at_start` / `names`；全部的列（含停用的）另存在 `buff_skill.items`，之後可以再打勾啟用。
+  狀態區顯示每個 Buff 還有幾秒放、上次放是幾秒前（模擬時是「會放」）。偵測不到玩家停手時 Buff 也不放。
+- **截取名牌**：「取一張畫面」把 bot 剛處理的那張凍結下來；有隊伍紅條時自動框出紅條下面的名字（找白色文字），
+  沒有就自己在畫面上拖框（可放大 2×/3×，手機可用手指拖）。「存成名牌」存到 `/work/nametag/nametag.png` + `nametag.json`
+  （當時的縮放、名牌左上角到玩家中心的位移——有隊伍紅條時用紅條的玩家位置校正），並在那張畫面上自我測試；bot 2 秒內換用新模板，不用重啟。
 
 給反向代理的假設：
 
@@ -86,7 +92,8 @@ docker exec -d wingpu-ct-maple sh -c "cd /work/MapleStoryAutoLevelUp && exec /wo
   不支援也沒關係，預設是每秒 GET 一次 `./debug.jpg`。
 - POST body 是小 JSON，伺服器上限 64 KB。
 
-API：`GET ./status`、`./debug.jpg`、`./guest.jpg`、`./route.png`、`./mjpeg`、`./api/config`；
+API：`GET ./status`、`./debug.jpg`、`./guest.jpg`、`./route.png`、`./mjpeg`、`./api/config`、`./api/nametag`、
+`./api/nametag/template.png`、`./api/nametag/snapshot.jpg?id=`；`POST ./api/nametag/snapshot`、`./api/nametag/save`（`{"id", "rect": [x,y,w,h]}`）、`./api/nametag/delete`；
 `POST ./run`、`./pause`、`./restart`、`./quit`、`./api/config`（`{"values": {"key.jump": "alt", ...}}`）、`./api/config/reset`、
 `./api/live`（`{"live": true, "confirm": "LIVE", "remember": false}`）。
 
@@ -111,9 +118,24 @@ bot 拿到第一張畫面（以及畫面大小改變時）會：
 顏色：沒有 OS 縮放了，UI 是精確的——小地圖白框 255、玩家點 (136,255,255)、怪物血條 (71,204,64) 都精確存在。
 但遊戲把世界畫成約 1.05 倍（有濾波），**怪物輪廓不再是純黑**：上游的 `contour_only` 在 wingpu 上不能用（見「驗證」），改用 `color`。
 
+## 找玩家：隊伍紅條 / 名牌 / 自動（`player_detect`）
+
+- `party_bar`：隊伍裡的角色頭上的紅色 HP 條（要組隊）。最準，幾乎不花 CPU。
+- `nametag`：角色腳下的名字。名字後面的底框是半透明的（會透出後面的場景），所以比對的是名字的**白色文字**
+  （`src/utils/nametag.py`，TM_SQDIFF_NORMED）：上次找到後 1 秒內只在附近找（便宜），找不到才全畫面找（先 1/2 大小再細找）。
+  模板用網頁「截取名牌」做；換解析度時依縮放比例自動縮放。門檻 `nametag_thres` 0.3（實測本人 0.00–0.20，其他東西 0.45 以上）。
+- `auto`（wingpu 預設）：先找紅條，找不到才用名牌。狀態顯示這張是哪個方法找到的。
+- 舊的 `nametag.enable: True` 仍是上游的名牌程式。
+
+## 找怪範圍（`monster_detect.search`）
+
+- `roi`（wingpu 預設）：玩家周圍的框，`roi_left/right/up/down`（參考像素，會縮放；預設 400/400/150/150），畫在 debug 圖上（Mob Detection Box）。
+- `full`：整個遊戲畫面（UI 帶以上）。
+- `attack`：上游的「攻擊範圍 + search_box_margin」。
+
 ## 安全：偵測不到就停手
 
-`detection_lost`（`config_default.yaml`）：normal 模式下小地圖（含玩家點）、或 normal / patrol 模式下玩家（隊伍紅條）超過 `timeout`（預設 3 秒）
+`detection_lost`（`config_default.yaml`）：normal 模式下小地圖（含玩家點）、或 normal / patrol 模式下玩家（任何一種方法都沒找到）超過 `timeout`（預設 3 秒）
 沒找到 → 放開所有鍵、鍵盤控制器與自動喝水都不送任何東西、log 一行；兩個都找回來才繼續（看門狗計時重設，不會一恢復就亂跳）。
 開始時也是停手狀態，直到第一次找到。偵測函式丟例外也不會讓 bot 執行緒死掉（放開按鍵、記錄、下一張再試）。
 
