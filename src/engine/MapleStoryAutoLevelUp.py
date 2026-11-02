@@ -2047,11 +2047,11 @@ class MapleStoryAutoBot:
                 if loc_party_red_bar is not None:
                     self.loc_party_red_bar = loc_party_red_bar
                     self.player_source = "party_bar"
+            # template changed on disk (web UI) -> reload, checked every 2 s
+            if self.nametag is not None and time.time() - self.t_nametag_check > 2.0:
+                self.t_nametag_check = time.time()
+                self.nametag.reload_if_changed()
             if self.player_source is None and mode in ("nametag", "auto") and self.nametag is not None:
-                # template changed on disk (web UI) -> reload, checked every 2 s
-                if time.time() - self.t_nametag_check > 2.0:
-                    self.t_nametag_check = time.time()
-                    self.nametag.reload_if_changed()
                 ui_y = min(self.img_frame.shape[0], self.cfg["ui_coords"]["ui_y_start"])
                 p = self.nametag.find(self.img_frame[:ui_y])
                 if p is not None:
