@@ -43,6 +43,13 @@ legend{font-weight:600;padding:0 4px}
 dialog{border:none;border-radius:12px;max-width:420px;width:calc(100% - 32px);background:var(--card);color:var(--fg)}
 dialog::backdrop{background:rgba(0,0,0,.5)}
 .msg{font-size:13px;color:var(--mut)}
+.buffrow{display:grid;grid-template-columns:1.2fr .8fr .8fr auto auto auto;gap:6px;align-items:center;margin:4px 0}
+.buffrow label{font-size:13px;white-space:nowrap}
+@media (max-width:600px){.buffrow{grid-template-columns:1fr 1fr 1fr}}
+.ntwrap{position:relative;display:inline-block;max-width:100%;touch-action:none;user-select:none}
+.ntwrap img{display:block;max-width:100%;height:auto}
+.ntwrap canvas{position:absolute;left:0;top:0;width:100%;height:100%;cursor:crosshair}
+img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);background:#000}
 </style>
 </head>
 <body>
@@ -90,6 +97,33 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
   </section>
 
   <section class="wide">
+    <h2>Buff <span class="msg" id="buff-note"></span></h2>
+    <table id="buffst"></table>
+  </section>
+
+  <section class="wide">
+    <h2>截取名牌（找玩家用）</h2>
+    <p class="msg">玩家偵測「名牌」或「自動」時用。按「取一張畫面」，在畫面上拖一個框把自己的名字框起來（有組隊時會自動框好，確認一下就好），再按「存成名牌」。
+      存到容器的 <code id="nt-path"></code>，不在程式目錄裡；存了馬上生效。</p>
+    <div class="row">
+      <button class="pri" onclick="ntSnap()">取一張畫面</button>
+      <button onclick="ntSave()" id="nt-save" disabled>存成名牌</button>
+      <button class="danger" onclick="ntDelete()">刪除名牌</button>
+      <span class="msg">目前的名牌：</span><img id="nt-cur" class="tpl" alt="（沒有）">
+      <span class="msg" id="nt-info"></span>
+    </div>
+    <div class="msg" id="nt-msg"></div>
+    <div id="nt-area" hidden style="margin-top:8px">
+      <div class="row"><span class="msg">放大</span>
+        <button type="button" onclick="ntZoom(1)">1×</button><button type="button" onclick="ntZoom(2)">2×</button><button type="button" onclick="ntZoom(3)">3×</button>
+        <span class="msg" id="nt-rect"></span></div>
+      <div style="overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:6px" id="nt-scroll">
+        <div class="ntwrap" id="nt-wrap"><img id="nt-img" alt="畫面"><canvas id="nt-cv"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wide">
     <h2>設定</h2>
     <p class="msg">存到 <code id="ufile"></code>（最後一層，不改內建設定檔）。像素值是「參考尺寸 1296×700」的值，bot 會依遊戲解析度自動縮放。</p>
     <form id="form" onsubmit="return false"></form>
@@ -134,8 +168,15 @@ const LABELS = {
   'key.add_mp': ['藍水（MP）鍵', ''],
   'key.party': ['組隊視窗鍵', ''],
   'key.return_home': ['回城卷鍵', ''],
-  'buff_skill.keys': ['Buff 技能', ''],
-  'buff_skill.cooldown': ['Buff 冷卻（秒）', ''],
+  'buff_skill.items': ['Buff 技能', '每列一個 Buff：名稱（可空）、按鍵、冷卻秒數、啟用、啟動時先放'],
+  'player_detect.mode': ['玩家偵測', 'auto：先找隊伍紅條，找不到用名牌；party_bar：只用隊伍紅條（要組隊）；nametag：只用名牌（要先截取名牌）'],
+  'player_detect.nametag_thres': ['名牌比對門檻', '0.05–0.6，越小越嚴（實測本人 0.00–0.20、別的 0.45 以上）'],
+  'monster_detect.search': ['找怪範圍', 'roi：玩家周圍的框（下面四個值）；full：整個畫面（慢、誤判多）；attack：攻擊範圍＋外擴（上游）'],
+  'monster_detect.roi_left': ['找怪框 左', '參考像素，玩家往左'],
+  'monster_detect.roi_right': ['找怪框 右', '參考像素，玩家往右'],
+  'monster_detect.roi_up': ['找怪框 上', '參考像素，玩家往上'],
+  'monster_detect.roi_down': ['找怪框 下', '參考像素，玩家往下'],
+  'monster_detect.interval_frames': ['每幾張找一次怪', '1 = 每張；2 = 隔一張（省 CPU）'],
   'health_monitor.enable': ['自動喝水', ''],
   'health_monitor.add_hp_percent': ['HP 低於 % 喝紅水', ''],
   'health_monitor.add_mp_percent': ['MP 低於 % 喝藍水', ''],
@@ -157,9 +198,10 @@ const LABELS = {
 const GROUPS = [
   ['地圖與模式', ['bot.map', 'route.files', 'bot.mode', 'bot.attack']],
   ['按鍵', ['key.directional_attack', 'key.aoe_skill', 'key.jump', 'key.teleport', 'key.add_hp', 'key.add_mp', 'key.party', 'key.return_home']],
-  ['Buff 技能', ['buff_skill.keys']],
+  ['Buff 技能', ['buff_skill.items']],
+  ['找玩家', ['player_detect.mode', 'player_detect.nametag_thres']],
   ['喝水', ['health_monitor.enable', 'health_monitor.add_hp_percent', 'health_monitor.add_mp_percent', 'health_monitor.add_hp_cooldown', 'health_monitor.add_mp_cooldown']],
-  ['攻擊與偵測', ['directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown', 'aoe_skill.range_x', 'aoe_skill.range_y', 'monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search_box_margin']],
+  ['攻擊與偵測', ['directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown', 'aoe_skill.range_x', 'aoe_skill.range_y', 'monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search_box_margin', 'monster_detect.search', 'monster_detect.roi_left', 'monster_detect.roi_right', 'monster_detect.roi_up', 'monster_detect.roi_down', 'monster_detect.interval_frames']],
   ['安全與其他', ['edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'system.fps_limit_main']],
 ];
 let CFG = null, LIVE = false;
@@ -200,9 +242,10 @@ async function poll() {
   rows($('st'), [
     ['狀態機', esc(s.state) + ' / ' + esc(s.mode) + ' / ' + esc(s.map)],
     ['小地圖', yes(det.minimap_age_s !== null && det.minimap_age_s < 3, '有', '沒有') + ` <span class="msg">命中 ${pct(hr.minimap)}，比例 ${res.minimap_scale ?? '-'}</span>`],
-    ['玩家', yes(det.player_age_s !== null && det.player_age_s < 3, '有', '沒有') + ` <span class="msg">命中 ${pct(hr.player)}，位置 ${esc(JSON.stringify(pl.loc))}</span>`],
+    ['玩家', yes(det.player_age_s !== null && det.player_age_s < 3, '有', '沒有') + ` <span class="msg">${s.player_source === 'party_bar' ? '隊伍紅條' : s.player_source === 'nametag' ? '名牌' : '這張沒找到'}；命中 ${pct(hr.player)}（紅條 ${pct(hr.player_party_bar)}、名牌 ${pct(hr.player_nametag)}），位置 ${esc(JSON.stringify(pl.loc))}</span>`],
+    ['名牌', s.nametag && s.nametag.loaded ? `分數 ${s.nametag.score ?? '-'}（${s.nametag.search === 'local' ? '附近找' : s.nametag.search === 'global' ? '全畫面找' : '-'}）` : '<span class="msg">沒有名牌模板</span>'],
     ['小地圖上的玩家', esc(JSON.stringify(mm.player_on_minimap)) + ' → 路線 ' + esc(JSON.stringify(mm.player_global))],
-    ['怪物', (s.monsters || []).length + ' 隻'],
+    ['怪物', (s.monsters || []).length + ' 隻' + (s.mob_search ? ` <span class="msg">找怪範圍 ${esc(s.mob_search.mode)} ${esc(JSON.stringify(s.mob_search.box))}</span>` : '')],
     ['指令', esc(`${s.command.move_x} ${s.command.move_y} ${s.command.action}`) + (s.kb_hold ? ' <span class="badge b-bad">停手</span>' : '')],
     ['解析度', esc((res.frame_wh || []).join('×')) + `，縮放 ${res.ui_scale}`],
     ['速度 / CPU', `${s.loop_fps} 張/秒，${s.process_cpu_cores} 核`],
@@ -213,6 +256,11 @@ async function poll() {
   $('bars').innerHTML = hm.bars_found ? bar('HP', hm.hp, '#dc2626') + bar('MP', hm.mp, '#2563eb') + bar('EXP', hm.exp, '#ca8a04') : '<span class="msg">找不到 HP/MP 條</span>';
   $('recent').textContent = (inp.recent || []).slice().reverse().join('\n') || '（還沒有）';
   $('act-note').textContent = LIVE ? '（真的送出）' : '（模擬：只記錄、沒有送出）';
+  const bs = s.buffs || [];
+  $('buff-note').textContent = LIVE ? '' : '（模擬：「放」= 會放，沒有送出）';
+  $('buffst').innerHTML = bs.length ? '<tr><td>Buff</td><td>下次 / 上次</td></tr>' + bs.map(b =>
+    `<tr><td>${esc(b.name || b.key)} <span class="msg">${esc(b.key)}，每 ${b.cooldown}s</span></td><td>${b.next_in_s > 0 ? b.next_in_s + ' 秒後' : '等待放（偵測不到或剛攻擊時會延後）'} / ${b.last_cast_s_ago === null ? '還沒放' : b.last_cast_s_ago + ' 秒前' + (LIVE ? '' : '（模擬）')}</td></tr>`).join('')
+    : '<tr><td class="msg">沒有啟用的 Buff</td><td></td></tr>';
 }
 
 // ---------- image ----------
@@ -259,8 +307,8 @@ function fieldHtml(f, v) {
     input = `<select id="${id}">` + f.choices.map(c => `<option ${c === v ? 'selected' : ''}>${esc(c)}</option>`).join('') + '</select>';
   } else if (f.kind === 'bool') {
     input = `<input type="checkbox" id="${id}" ${v ? 'checked' : ''}>`;
-  } else if (f.kind === 'keys') {
-    input = `<div id="${id}"></div><button type="button" onclick="addBuff('','')">＋ 新增 Buff</button>`;
+  } else if (f.kind === 'buffs') {
+    input = `<div id="${id}"></div><button type="button" onclick="addBuff({})">＋ 新增 Buff</button>`;
   } else if (f.kind === 'num' || f.kind === 'int') {
     input = `<input id="${id}" type="number" inputmode="decimal" step="${f.kind === 'int' ? 1 : 'any'}" min="${f.range[0]}" max="${f.range[1]}" value="${v ?? ''}">`;
   } else {
@@ -273,12 +321,16 @@ function renderRoutes() {
   const cur = map === CFG.values['bot.map'] ? (CFG.values['route.files'] || []) : [];
   $('f-route-files').innerHTML = (m ? m.routes : []).map(r => `<label class="row"><input type="checkbox" value="${esc(r)}" ${cur.includes(r) ? 'checked' : ''}> ${esc(r)}</label>`).join('') || '<span class="msg">沒有路線</span>';
 }
-function addBuff(k, cd) {
+function addBuff(it) {
   const d = document.createElement('div');
-  d.className = 'row buff';
-  d.style.margin = '4px 0';
-  d.innerHTML = `<input class="bk" placeholder="按鍵，例如 a" value="${esc(k)}" style="width:40%" autocapitalize="off"><input class="bc" type="number" placeholder="冷卻秒" value="${esc(cd)}" style="width:35%"><button type="button" onclick="this.parentNode.remove()">刪除</button>`;
-  $('f-buff_skill-keys').appendChild(d);
+  d.className = 'buffrow';
+  d.innerHTML = `<input class="bn" placeholder="名稱（可空）" value="${esc(it.name ?? '')}">`
+    + `<input class="bk" placeholder="按鍵，例如 a" value="${esc(it.key ?? '')}" autocapitalize="off" spellcheck="false">`
+    + `<input class="bc" type="number" inputmode="decimal" placeholder="冷卻秒" value="${esc(it.cooldown ?? '')}">`
+    + `<label><input type="checkbox" class="be" ${it.enabled === false ? '' : 'checked'}> 啟用</label>`
+    + `<label><input type="checkbox" class="bs" ${it.cast_at_start === false ? '' : 'checked'}> 啟動時先放</label>`
+    + `<button type="button" onclick="this.parentNode.remove()">刪除</button>`;
+  $('f-buff_skill-items').appendChild(d);
 }
 async function loadConfig() {
   CFG = await api('api/config');
@@ -290,20 +342,20 @@ async function loadConfig() {
   }
   $('form').innerHTML = html;
   renderRoutes();
-  const keys = CFG.values['buff_skill.keys'] || [], cds = CFG.values['buff_skill.cooldown'] || [];
-  keys.forEach((k, i) => addBuff(k, cds[i] ?? ''));
+  (CFG.values['buff_skill.items'] || []).forEach(addBuff);
+  ntStatus();
   $('save-msg').textContent = '';
 }
 function collect() {
   const v = {};
   for (const f of CFG.fields) {
     const id = 'f-' + f.name.replace('.', '-');
-    if (f.name === 'buff_skill.cooldown') continue;
     if (f.kind === 'routes') { v[f.name] = [...$(id).querySelectorAll('input:checked')].map(x => x.value); continue; }
-    if (f.kind === 'keys') {
-      const rs = [...$(id).querySelectorAll('.buff')];
-      v['buff_skill.keys'] = rs.map(r => r.querySelector('.bk').value.trim()).filter(x => x);
-      v['buff_skill.cooldown'] = rs.filter(r => r.querySelector('.bk').value.trim()).map(r => r.querySelector('.bc').value);
+    if (f.kind === 'buffs') {
+      v[f.name] = [...$(id).querySelectorAll('.buffrow')].filter(r => r.querySelector('.bk').value.trim() || r.querySelector('.bc').value).map(r => ({
+        name: r.querySelector('.bn').value.trim(), key: r.querySelector('.bk').value.trim(),
+        cooldown: r.querySelector('.bc').value, enabled: r.querySelector('.be').checked,
+        cast_at_start: r.querySelector('.bs').checked}));
       continue;
     }
     const el = $(id);
@@ -343,6 +395,63 @@ async function restart() {
   await loadConfig();
   poll();
   startImage();
+}
+
+// ---------- nametag capture ----------
+let NT = null, NTRECT = null, NTZ = 1;
+async function ntStatus() {
+  const st = await api('api/nametag');
+  $('nt-path').textContent = st.path || '';
+  $('nt-cur').src = st.exists ? './api/nametag/template.png?t=' + (st.mtime || 0) : '';
+  $('nt-cur').hidden = !st.exists;
+  $('nt-info').textContent = st.exists ? `${(st.size || []).join('×')}，${st.meta && st.meta.offset_from === 'party_bar' ? '位置由隊伍紅條校正' : '位置用預設值'}` : '（還沒有）';
+}
+function ntDraw() {
+  const cv = $('nt-cv'), img = $('nt-img');
+  cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+  const g = cv.getContext('2d');
+  g.clearRect(0, 0, cv.width, cv.height);
+  if (NT && NT.player) { g.fillStyle = '#00f'; g.fillRect(NT.player[0] - 2, NT.player[1] - 2, 5, 5); }
+  if (NTRECT) { g.strokeStyle = '#f00'; g.lineWidth = 1; g.strokeRect(NTRECT[0] + .5, NTRECT[1] + .5, NTRECT[2], NTRECT[3]); }
+  $('nt-rect').textContent = NTRECT ? `框：x ${NTRECT[0]} y ${NTRECT[1]}，${NTRECT[2]}×${NTRECT[3]}` : '（在畫面上拖一個框）';
+  $('nt-save').disabled = !NTRECT;
+}
+function ntZoom(z) { NTZ = z; $('nt-img').style.width = ($('nt-img').naturalWidth * z) + 'px'; $('nt-img').style.maxWidth = z > 1 ? 'none' : '100%'; ntScrollTo(); }
+function ntScrollTo() {
+  const r = NTRECT || (NT && NT.player ? [NT.player[0], NT.player[1], 1, 1] : null);
+  if (!r || NTZ === 1) return;
+  const sc = $('nt-scroll'), k = $('nt-img').clientWidth / $('nt-img').naturalWidth;
+  sc.scrollLeft = r[0] * k - sc.clientWidth / 2; sc.scrollTop = r[1] * k - sc.clientHeight / 2;
+}
+async function ntSnap() {
+  $('nt-msg').textContent = '取畫面中…';
+  const r = await api('api/nametag/snapshot', {});
+  if (!r.ok) { $('nt-msg').textContent = JSON.stringify(r.errors); return; }
+  NT = r; NTRECT = r.proposal;
+  $('nt-area').hidden = false;
+  const img = $('nt-img');
+  img.onload = () => { ntDraw(); ntZoom(r.proposal ? 3 : 1); };
+  img.src = './api/nametag/snapshot.jpg?id=' + r.id;
+  $('nt-msg').textContent = r.proposal ? '有組隊：已自動框出名牌（紅框），對的話直接按「存成名牌」。不對就自己拖一個框。' : (r.player ? '找不到名牌，請自己拖一個框。' : '沒有隊伍紅條：請自己拖框把名字框起來（放大比較好框）。');
+}
+(function () {
+  const cv = $('nt-cv'); let start = null;
+  const pt = e => { const b = cv.getBoundingClientRect(); return [Math.round((e.clientX - b.left) * cv.width / b.width), Math.round((e.clientY - b.top) * cv.height / b.height)]; };
+  cv.addEventListener('pointerdown', e => { start = pt(e); cv.setPointerCapture(e.pointerId); e.preventDefault(); });
+  cv.addEventListener('pointermove', e => { if (!start) return; const p = pt(e); NTRECT = [Math.min(start[0], p[0]), Math.min(start[1], p[1]), Math.abs(p[0] - start[0]), Math.abs(p[1] - start[1])]; ntDraw(); });
+  cv.addEventListener('pointerup', () => { start = null; if (NTRECT && (NTRECT[2] < 6 || NTRECT[3] < 5)) NTRECT = null; ntDraw(); });
+})();
+async function ntSave() {
+  if (!NT || !NTRECT) return;
+  const r = await api('api/nametag/save', {id: NT.id, rect: NTRECT});
+  if (!r.ok) { $('nt-msg').textContent = '沒存：' + Object.values(r.errors || {}).join('；'); return; }
+  $('nt-msg').textContent = `已存。自我測試：${r.test.found ? '找得到（分數 ' + r.test.score.toFixed(3) + '）' : '找不到！請框大一點或重框'}。` + (r.meta.offset_from === 'party_bar' ? '玩家位置由隊伍紅條校正。' : '');
+  ntStatus();
+}
+async function ntDelete() {
+  if (!confirm('刪除名牌模板？（留一份 .bak）')) return;
+  await api('api/nametag/delete', {});
+  ntStatus();
 }
 
 loadConfig();

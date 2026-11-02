@@ -36,6 +36,9 @@ buff_skill:
   # ⚠️ Note: If your have a pet to apply buff for you, you can ignore this.
   keys: []                # ⌨️ List of keys to cast each buff skill (e.g., ["a", "s"])
   cooldown: []            # ⏱️ Cooldown time (in seconds), matches the order of `keys`
+  cast_at_start: []       # ✅ per buff: cast when the bot starts (missing = True); False = wait one cooldown first
+  names: []               # 🏷️ per buff: label for the web UI / status (optional)
+  # items: [...]          # (web UI) every buff row incl. disabled ones; keys/cooldown hold the enabled ones
   action_cooldown: 1      # 🕒 Delay (in seconds) after buffing before continuing actions
 
 directional_attack:
@@ -114,6 +117,18 @@ nametag:
   # To avoid occlusion from ladders or background objects,
   # the nametag will be split vertically and matched in smaller parts.
 
+player_detect:
+  # 🧍 How the bot finds the player on screen
+  #   party_bar: the red HP bar the game draws over a party member (needs a party)
+  #   nametag:   the player's name under the character, template cut from the game
+  #              (wingpu web UI "截取名牌"; saved to nametag_template)
+  #   auto:      party bar when it is found, otherwise the nametag
+  # (nametag.enable: True below still selects the upstream nametag code instead)
+  mode: "party_bar"
+  nametag_template: ""     # "" = /work/nametag/nametag.png (wingpu) or ./nametag/nametag.png
+  nametag_thres: 0.3       # TM_SQDIFF_NORMED on the name's white text (maple: true 0.00-0.20, other 0.45+)
+  nametag_local_timeout: 1.0 # s: search near the last position while it was seen this recently
+
 character:
   # 🧍 Character
   # Your character's size in pixels.
@@ -135,6 +150,12 @@ monster_detect:
   mode: "contour_only"         # 🧠 Options: "color" "grayscale" "contour_only" "template_free"
   diff_thres: 0.8              # 📏 Diff threshold for template matching, [0.0 ~ 1.0] Lower = stricter match
   search_box_margin: 50        # ➕ Additional margin(in pixels) around the attack box for monster searching
+  search: "attack"             # 🔎 where to look for monsters: "attack" (attack range + search_box_margin, upstream),
+                               #    "roi" (box around the player, roi_* below), "full" (whole camera area)
+  roi_left: 400                # ↔️ "roi": pixels left of the player
+  roi_right: 400               # ↔️ "roi": pixels right of the player
+  roi_up: 150                  # ↕️ "roi": pixels above the player
+  roi_down: 150                # ↕️ "roi": pixels below the player
   contour_blur: 5              # 🌫️ Gaussian blur kernel size used for contour smoothing (in "contour_only" mode).
   with_enemy_hp_bar: True      # ❤️ Enable smarter detection using enemy HP bars.
   hp_bar_color: [71, 204, 64]  # 💚 Enemy HP bar color (in BGR format)

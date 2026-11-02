@@ -30,6 +30,7 @@ from src.utils.common import (find_pattern_sqdiff, draw_rectangle, screenshot, n
 )
 from src.utils.resolution import (compute_scale, apply_scale, snapshot_base,
     scale_template, sc, MinimapScale, GREEN)
+from src.utils.nametag import NametagTracker, default_dir as nametag_default_dir
 from src.input.KeyBoardController import KeyBoardController, press_key
 if is_mac():
     from src.input.GameWindowCapturorForMac import GameWindowCapturor
@@ -132,7 +133,13 @@ class MapleStoryAutoBot:
         self.t_player_seen = 0.0 # last frame with the player found on screen
         self.is_lost_paused = False
         self.lost_reason = []
+        # Player detection (player_detect.mode: party_bar | nametag | auto)
+        self.nametag = None # NametagTracker (template captured from the game, /work/nametag/)
+        self.player_source = None # "party_bar" | "nametag" | None (this frame)
+        self.t_nametag_check = 0.0
+        self.mob_search_box = None # (x0, y0, x1, y1) of the last monster search
         self.det_counts = {"frames": 0, "minimap": 0, "player_dot": 0, "player": 0,
+                           "player_party_bar": 0, "player_nametag": 0,
                            "monsters": 0, "lost_paused": 0}
 
         # Database
@@ -385,6 +392,8 @@ class MapleStoryAutoBot:
         self.build_templates(s)
         if self.health_monitor is not None:
             self.health_monitor.set_scale(s)
+        if self.nametag is not None:
+            self.nametag.set_scale(s)
         if self.minimap_scale is not None:
             self.minimap_scale.m = None
             self.t_minimap_scale_try = 0.0
@@ -393,6 +402,23 @@ class MapleStoryAutoBot:
         self.loc_party_red_bar = (0, 0)
         self.t_minimap_ok = self.t_player_seen = 0.0
         logger.info(f"[on_resolution] game frame {w}x{h}, scale {s:.4f}")
+
+    def init_nametag(self):
+        '''
+        Nametag tracker from player_detect.nametag_template (default
+        /work/nametag/nametag.png, made with the web UI's 截取名牌)
+        '''
+        pd = self.cfg.get("player_detect", {}) or {}
+        path = pd.get("nametag_template") or f"{nametag_default_dir()}/nametag.png"
+        self.nametag = NametagTracker(path, thres=float(pd.get("nametag_thres", 0.3)),
+                                      local_timeout=float(pd.get("nametag_local_timeout", 1.0)))
+        self.nametag.set_scale(self.scale)
+
+    def player_detect_mode(self):
+        '''
+        party_bar | nametag | auto (legacy: nametag.enable -> upstream nametag code)
+        '''
+        return (self.cfg.get("player_detect", {}) or {}).get("mode", "party_bar")
 
     def title_bar_height(self):
         '''
@@ -445,6 +471,9 @@ class MapleStoryAutoBot:
 
         # Init rune solver
         self.rune_solver = RuneSolver(self.cfg)
+
+        # Nametag tracker (player_detect.mode nametag / auto)
+        self.init_nametag()
 
         # Reset all timers
         self.t_last_frame = time.time()
@@ -1764,11 +1793,26 @@ class MapleStoryAutoBot:
         else:
             raise RuntimeError(f"Unsupported attack mode: {self.cfg['bot']['attack']}")
         # (clipped to the camera area: the UI band below ui_y_start is not the world)
+        md = self.cfg["monster_detect"]
+        search = md.get("search", "attack")
         y_max = min(self.img_frame.shape[0], self.cfg["ui_coords"]["ui_y_start"])
-        x0 = max(0                      , self.loc_player[0] - dx)
-        x1 = min(self.img_frame.shape[1], self.loc_player[0] + dx)
-        y0 = max(0                      , self.loc_player[1] - dy)
-        y1 = min(y_max                  , self.loc_player[1] + dy)
+        if search == "full":
+            # whole camera area
+            x0, y0, x1, y1 = 0, 0, self.img_frame.shape[1], y_max
+        else:
+            if search == "roi":
+                # box around the player: monster_detect.roi_left/right/up/down (scaled)
+                dl, dr = md.get("roi_left", dx), md.get("roi_right", dx)
+                du, dd = md.get("roi_up", dy), md.get("roi_down", dy)
+            else:
+                # upstream: attack range + search_box_margin
+                dl = dr = dx
+                du = dd = dy
+            x0 = max(0                      , self.loc_player[0] - dl)
+            x1 = min(self.img_frame.shape[1], self.loc_player[0] + dr)
+            y0 = max(0                      , self.loc_player[1] - du)
+            y1 = min(y_max                  , self.loc_player[1] + dd)
+        self.mob_search_box = (int(x0), int(y0), int(x1), int(y1))
         if x1 - x0 < 2 or y1 - y0 < 2:
             self.monsters = []
             return
@@ -1989,17 +2033,43 @@ class MapleStoryAutoBot:
         #################################
         # Get player location in game window
         player_found = False
+        self.player_source = None
         if self.cfg["nametag"]["enable"]:
+            # upstream nametag code (nametag/<name>.png at the reference scale)
             loc_player = self.get_player_location_by_nametag()
             player_found = getattr(self, "nametag_found", False)
+            self.player_source = "nametag" if player_found else None
         else:
-            loc_player, loc_party_red_bar = self.get_player_location_by_party_red_bar()
-            if loc_party_red_bar is not None:
-                self.loc_party_red_bar = loc_party_red_bar
-                player_found = True
+            mode = self.player_detect_mode()
+            loc_player = None
+            if mode in ("party_bar", "auto"):
+                loc_player, loc_party_red_bar = self.get_player_location_by_party_red_bar()
+                if loc_party_red_bar is not None:
+                    self.loc_party_red_bar = loc_party_red_bar
+                    self.player_source = "party_bar"
+            if self.player_source is None and mode in ("nametag", "auto") and self.nametag is not None:
+                # template changed on disk (web UI) -> reload, checked every 2 s
+                if time.time() - self.t_nametag_check > 2.0:
+                    self.t_nametag_check = time.time()
+                    self.nametag.reload_if_changed()
+                ui_y = min(self.img_frame.shape[0], self.cfg["ui_coords"]["ui_y_start"])
+                p = self.nametag.find(self.img_frame[:ui_y])
+                if p is not None:
+                    loc_player = p
+                    self.player_source = "nametag"
+                    if self.is_show_debug_window and self.nametag.tpl is not None:
+                        th, tw = self.nametag.tpl.shape[:2]
+                        draw_rectangle(self.img_frame_debug, self.nametag.loc, (th, tw), (255, 0, 255),
+                                       f"nametag {self.nametag.last_score:.2f} {self.nametag.last_mode}",
+                                       thickness=1, text_height=0.4)
+            player_found = self.player_source is not None
         if player_found:
             self.t_player_seen = time.time()
             self.det_counts["player"] += 1
+            if self.player_source == "party_bar":
+                self.det_counts["player_party_bar"] += 1
+            elif self.player_source == "nametag":
+                self.det_counts["player_nametag"] += 1
 
         # Update player location
         if loc_player is not None:

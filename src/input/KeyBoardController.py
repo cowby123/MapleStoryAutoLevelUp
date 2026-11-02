@@ -102,7 +102,13 @@ class KeyBoardController():
         self.t_last_jump_down = 0.0
         self.t_last_run = time.time()
         self.t_last_skill = 0.0 # Last time character perform action(attack, cast spell, ...)
-        self.t_last_buff_cast = [0] * len(self.cfg["buff_skill"]["keys"]) # Last time cast buff skill
+        # Last time each buff was cast. buff_skill.cast_at_start[i] False: wait one
+        # cooldown before the first cast (default / missing: cast right away, upstream)
+        at_start = list(self.cfg["buff_skill"].get("cast_at_start") or [])
+        now = time.time()
+        self.t_last_buff_cast = [0 if (at_start[i] if i < len(at_start) else True) else now
+                                 for i in range(len(self.cfg["buff_skill"]["keys"]))]
+        self.t_buff_cast_logged = [None] * len(self.t_last_buff_cast) # last actual (or dry-run) cast
         # Flags
         self.is_enable = True
         self.is_need_force_heal = False
@@ -248,6 +254,7 @@ class KeyBoardController():
                     logger.info(f"[Buff] Press buff skill key: '{buff_skill_key}' (cooldown: {cooldown}s)")
                     # Reset timers
                     self.t_last_buff_cast[i] = time.time()
+                    self.t_buff_cast_logged[i] = self.t_last_buff_cast[i]
                     self.t_last_skill = time.time()
                     break
 

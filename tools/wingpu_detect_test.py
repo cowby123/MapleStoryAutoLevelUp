@@ -102,10 +102,16 @@ class Args:
     wingpu_live = False
 
 
+OVERRIDES = {}  # "section.key" -> value (--set)
+
+
 def make_bot(cfg_name, scale=None):
     cfg = build_cfg(cfg_name, user_override=None)
     if scale is not None:
         cfg.setdefault("wingpu", {})["scale"] = scale
+    for name, v in OVERRIDES.items():
+        sec, key = name.split(".", 1)
+        cfg.setdefault(sec, {})[key] = v
     cfg["profiler"]["enable"] = True
     # every frame is a standalone test: run every detector on every frame
     cfg["monster_detect"]["interval_frames"] = 1
@@ -118,6 +124,7 @@ def make_bot(cfg_name, scale=None):
     bot.health_monitor = HealthMonitor(bot.cfg, bot.kb)
     bot.profiler = Profiler(bot.cfg)
     bot.rune_solver = RuneSolver(bot.cfg)
+    bot.init_nametag()
     bot.fsm.set_init_state("hunting")
     return bot
 
@@ -129,7 +136,8 @@ def run(frames, cfg_name, scale=None, out=None, quiet=False):
     bot = make_bot(cfg_name, scale)
     if out:
         os.makedirs(out, exist_ok=True)
-    hits = {"minimap": 0, "player_dot": 0, "global_ok": 0, "player": 0, "monsters": 0,
+    hits = {"minimap": 0, "player_dot": 0, "global_ok": 0, "player": 0,
+            "by_party_bar": 0, "by_nametag": 0, "monsters": 0,
             "hp_bars": 0, "paused": 0}
     cpu = []
     wall = []
@@ -161,6 +169,10 @@ def run(frames, cfg_name, scale=None, out=None, quiet=False):
         hits["player_dot"] += dot
         hits["global_ok"] += global_ok
         hits["player"] += player
+        hits["by_party_bar"] += bot.player_source == "party_bar"
+        hits["by_nametag"] += bot.player_source == "nametag"
+        if bot.nametag is not None:
+            bot.nametag.loc = None  # standalone frame: no local search from the previous one
         hits["monsters"] += len(bot.monsters) > 0
         hits["hp_bars"] += hp[0] is not None
         hits["paused"] += bot.is_lost_paused
@@ -171,7 +183,7 @@ def run(frames, cfg_name, scale=None, out=None, quiet=False):
                   f"m={bot.minimap_scale.m if bot.minimap_scale and bot.minimap_scale.m else None} "
                   f"dot={bot.loc_player_minimap if dot else None} "
                   f"glob={bot.loc_player_global} mm@{tuple(int(v) for v in bot.loc_minimap_global)}/{round(gscore, 3) if gscore is not None else None} "
-                  f"player={tuple(int(v) for v in bot.loc_player) if player else None} "
+                  f"player={tuple(int(v) for v in bot.loc_player) if player else None}/{bot.player_source} "
                   f"mobs={len(bot.monsters)}{mons[:3]} "
                   f"hp/mp/exp={[round(v, 1) if v is not None else None for v in hp]} "
                   f"state={bot.fsm.state.name} "
@@ -190,6 +202,8 @@ def main():
     ap.add_argument("--frames", default="fixtures/maple/*.png")
     ap.add_argument("--cfg", default="wingpu_maple")
     ap.add_argument("--scale", default=None, help="wingpu.scale override")
+    ap.add_argument("--set", action="append", default=[],
+                    help="config override section.key=value (YAML value), e.g. player_detect.mode=nametag")
     ap.add_argument("--sweep", default="", help="comma separated scales: hit rates per scale")
     ap.add_argument("--out", default="")
     ap.add_argument("--limit", type=int, default=0)
@@ -197,6 +211,10 @@ def main():
                     help="x,y: the minimap's position in map.png that every frame must give (global_ok)")
     args = ap.parse_args()
     global EXPECT_LOC
+    import yaml
+    for kv in args.set:
+        k, v = kv.split("=", 1)
+        OVERRIDES[k] = yaml.safe_load(v)
     if args.expect_minimap_loc:
         EXPECT_LOC = tuple(int(v) for v in args.expect_minimap_loc.split(","))
     frames = sorted(glob.glob(args.frames))
@@ -227,6 +245,8 @@ def main():
     print(f"run_once: cpu {1000 * sum(cpu) / len(cpu):.1f} ms/frame, wall {1000 * sum(wall) / len(wall):.1f} ms/frame")
     print(bot.profiler.report())
     print(f"input (dry run, recorded only): {get_keyboard().status()['counts']}")
+    if bot.nametag is not None:
+        print(f"nametag: {bot.nametag.status()}")
 
 
 if __name__ == "__main__":

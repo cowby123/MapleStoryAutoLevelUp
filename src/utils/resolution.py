@@ -118,6 +118,8 @@ _LENGTHS = [
     ("nametag", "split_width"),
     ("character", "width"), ("character", "height"),
     ("monster_detect", "search_box_margin"),
+    ("monster_detect", "roi_left"), ("monster_detect", "roi_right"),
+    ("monster_detect", "roi_up"), ("monster_detect", "roi_down"),
     ("rune_detect", "box_width"), ("rune_detect", "box_height"),
     ("rune_find", "rune_trigger_distance_x"), ("rune_find", "rune_trigger_distance_y"),
     ("rune_solver", "arrow_box_size"), ("rune_solver", "arrow_box_interval"),

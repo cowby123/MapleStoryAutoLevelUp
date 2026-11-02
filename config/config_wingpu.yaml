@@ -58,3 +58,10 @@ monster_detect:
   color_prefilter: True     # color: match at 1/4 first, then only around candidates (same hits on the fixtures, ~half the CPU)
   color_prefilter_thres: 0.16
   interval_frames: 2        # look for monsters every 2nd frame (5/s at fps_limit_main 10), reuse the result in between
+  # Where to look (2026-11-02, 49 hunting frames, colour mode): roi (400/400/150/150 around the player)
+  # 31 hits, 2 false, 20 ms/frame; full (whole camera area) 139 hits, ~69 false (sky + foliage), 129 ms/frame
+  search: "roi"
+
+player_detect:
+  # auto: party bar when found, else the nametag (web UI 截取名牌 -> /work/nametag/nametag.png)
+  mode: "auto"

@@ -256,11 +256,37 @@ class WingpuControl:
             "kb_command": f"{kb.cmd_left_right} {kb.cmd_up_down} {kb.cmd_action}" if kb else None,
             "kb_enabled": kb.is_enable if kb else None,
             "kb_hold": getattr(kb, "is_hold", False) if kb else None,
+            "buffs": self.buff_status(),
+            "player_source": getattr(bot, "player_source", None),
+            "nametag": bot.nametag.status() if getattr(bot, "nametag", None) is not None else None,
+            "mob_search": {"mode": bot.cfg["monster_detect"].get("search", "attack"),
+                           "box": list(bot.mob_search_box) if getattr(bot, "mob_search_box", None) else None},
             "pending_restart": self.pending_restart,
             "input": get_keyboard().status(),
         }
         self.status = status
         return status
+
+    def buff_status(self):
+        '''
+        Per enabled buff: seconds until the next cast, seconds since the last
+        (dry run: would-be) cast
+        '''
+        kb = self.bot.kb
+        b = self.bot.cfg.get("buff_skill") or {}
+        keys, cds = list(b.get("keys") or []), list(b.get("cooldown") or [])
+        names = list(b.get("names") or [])
+        now = time.time()
+        out = []
+        for i, k in enumerate(keys):
+            t_last = kb.t_last_buff_cast[i] if kb is not None and i < len(kb.t_last_buff_cast) else 0
+            logged = getattr(kb, "t_buff_cast_logged", [None] * len(keys))
+            t_cast = logged[i] if i < len(logged) else None
+            cd = float(cds[i]) if i < len(cds) else 0
+            out.append({"name": names[i] if i < len(names) else "", "key": k, "cooldown": cd,
+                        "next_in_s": round(max(0.0, cd - (now - t_last)), 1),
+                        "last_cast_s_ago": round(now - t_cast, 1) if t_cast else None})
+        return out
 
     def write_debug(self):
         bot = self.bot
@@ -373,6 +399,22 @@ class WingpuControl:
                     self._file("latest_guest.jpg", "image/jpeg")
                 elif path == "/api/config":
                     self._json(control.webui.config())
+                elif path == "/api/nametag":
+                    self._json(control.webui.nametag_status())
+                elif path == "/api/nametag/template.png":
+                    png = control.webui.nametag_png()
+                    if png is None:
+                        self._send(404, "text/plain", b"no template")
+                    else:
+                        self._send(200, "image/png", png)
+                elif path == "/api/nametag/snapshot.jpg":
+                    q = urlparse(self.path).query
+                    sid = dict(kv.split("=", 1) for kv in q.split("&") if "=" in kv).get("id", "0")
+                    jpg = control.webui.snapshot_jpeg(sid) if sid.isdigit() else None
+                    if jpg is None:
+                        self._send(404, "text/plain", b"no snapshot")
+                    else:
+                        self._send(200, "image/jpeg", jpg)
                 elif path == "/mjpeg":
                     self.send_response(200)
                     self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
@@ -416,6 +458,15 @@ class WingpuControl:
                     return
                 elif path == "/api/live":
                     self._json(control.webui.set_live(body))
+                    return
+                elif path == "/api/nametag/snapshot":
+                    self._json(control.webui.nametag_snapshot())
+                    return
+                elif path == "/api/nametag/save":
+                    self._json(control.webui.nametag_save(body))
+                    return
+                elif path == "/api/nametag/delete":
+                    self._json(control.webui.nametag_delete())
                     return
                 else:
                     self._send(404, "text/plain", b"POST run, pause, quit, restart, api/config, api/live")
