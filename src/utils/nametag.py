@@ -52,6 +52,7 @@ def propose_rect(img, player, s):
     roi = img[y0:y1, x0:x1].astype(np.int16)
     mn, mx = roi.min(axis=2), roi.max(axis=2)
     white = ((mn > 190) & (mx - mn < 40)).astype(np.uint8) * 255
+    raw = white.copy()
     k = cv2.getStructuringElement(cv2.MORPH_RECT, (max(3, int(9 * s)), max(3, int(5 * s))))
     white = cv2.morphologyEx(white, cv2.MORPH_CLOSE, k)
     n, _, st, _ = cv2.connectedComponentsWithStats(white, connectivity=8)
@@ -59,6 +60,13 @@ def propose_rect(img, player, s):
     for i in range(1, n):
         x, y, w, h, area = st[i]
         if not (6 * s <= h <= 20 * s and 8 * s <= w <= 150 * s):
+            continue
+        # text, not a solid white thing (a shoe, a cloud): strokes fill 20-60 %
+        # of the box, and the box has dark pixels between the strokes
+        fill = np.count_nonzero(raw[y:y + h, x:x + w]) / float(w * h)
+        if not 0.15 <= fill <= 0.65:
+            continue
+        if np.count_nonzero(mx[y:y + h, x:x + w] < 90) < 0.15 * w * h:
             continue
         d = abs((x + w / 2) - (cx - x0)) + 0.5 * y
         if best is None or d < best[0]:
