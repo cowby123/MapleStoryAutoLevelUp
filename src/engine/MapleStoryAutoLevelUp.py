@@ -294,10 +294,10 @@ class MapleStoryAutoBot:
         (Re)build every template at scale s (1.0 = as on disk) and the values
         derived from them.
         '''
-        self.monsters_info = {}
-        self.monster_contour = {}
-        self.monster_color = {}
-        self.monster_color_pre = {}
+        # Built in locals and swapped in at the end: the web UI calls this from
+        # its HTTP thread while the bot loop uses the templates (a half-built
+        # dict raised KeyError ('pig', 6) in the loop on 2026-11-02)
+        monsters_info, monster_contour, monster_color, monster_color_pre = {}, {}, {}, {}
         blur = self.cfg["monster_detect"]["contour_blur"]
         for name, imgs in self.tpl_src.get("monsters", {}).items():
             pairs = []
@@ -305,7 +305,7 @@ class MapleStoryAutoBot:
                 img = scale_template(img, s)
                 for im in (img, cv2.flip(img, 1)):
                     pairs.append((im, get_mask(im, GREEN)))
-            self.monsters_info[name] = pairs
+            monsters_info[name] = pairs
             ds = self.monster_match_downscale()
             for i, (im, _) in enumerate(pairs):
                 black = np.all(im == [0, 0, 0], axis=2).astype(np.uint8) * 255
@@ -313,19 +313,21 @@ class MapleStoryAutoBot:
                 if ds > 1:
                     tb = cv2.resize(tb, (max(1, tb.shape[1] // ds), max(1, tb.shape[0] // ds)),
                                     interpolation=cv2.INTER_AREA)
-                self.monster_contour[(name, i)] = tb
+                monster_contour[(name, i)] = tb
                 # colour template + mask at 1/ds for "color" mode
                 im_ds, mk_ds = im, pairs[i][1]
                 if ds > 1:
                     size = (max(1, im.shape[1] // ds), max(1, im.shape[0] // ds))
                     im_ds = cv2.resize(im, size, interpolation=cv2.INTER_AREA)
                     mk_ds = cv2.resize(mk_ds, size, interpolation=cv2.INTER_NEAREST)
-                self.monster_color[(name, i)] = (im_ds, mk_ds)
+                monster_color[(name, i)] = (im_ds, mk_ds)
                 if self.cfg["monster_detect"].get("color_prefilter", False):
                     size = (max(1, im_ds.shape[1] // 2), max(1, im_ds.shape[0] // 2))
-                    self.monster_color_pre[(name, i)] = (
+                    monster_color_pre[(name, i)] = (
                         cv2.resize(im_ds, size, interpolation=cv2.INTER_AREA),
                         cv2.resize(mk_ds, size, interpolation=cv2.INTER_NEAREST))
+        self.monster_contour, self.monster_color, self.monster_color_pre =             monster_contour, monster_color, monster_color_pre
+        self.monsters_info = monsters_info
         sizes = [im.shape[:2] for pairs in self.monsters_info.values() for im, _ in pairs]
         self.monster_min_area = min((h * w for h, w in sizes), default=0)
         self.monster_min_h = min((h for h, _ in sizes), default=sc(40, s))

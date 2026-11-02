@@ -365,6 +365,7 @@ class WebUI:
         cfg = bot.cfg
         base = getattr(bot, "cfg_base", None) or {}
         live, restart = [], []
+        old_md = copy.deepcopy(cfg.get("monster_detect") or {})
         for sec, kv in clean.items():
             for key, v in kv.items():
                 name = f"{sec}.{key}"
@@ -390,7 +391,10 @@ class WebUI:
         # derived state
         if bot.frame_hw and base:
             apply_scale(cfg, base, bot.scale, bot.frame_hw)
-        if "monster_detect" in clean:
+        # templates only when something they depend on changed (every full-form
+        # save sends every field)
+        tpl_keys = {"mode", "contour_blur", "match_downscale", "color_prefilter", "black_thres"}
+        if tpl_keys & set((clean.get("monster_detect") or {}).keys()) and                 any(old_md.get(k) != cfg["monster_detect"].get(k) for k in tpl_keys):
             bot.build_templates(bot.scale)
         kb = bot.kb
         if kb is not None and "key" in clean:
