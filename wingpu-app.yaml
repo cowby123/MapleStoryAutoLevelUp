@@ -1,0 +1,17 @@
+# wingpu App (docs/CONTAINERS.md "App" in the wingpu repo): the manager page starts / stops this bot.
+# The app folder is /work/apps/msbot -> /work/MapleStoryAutoLevelUp (tools/wingpu_sync.sh makes the link).
+name: msbot
+title: 楓之谷練功 Bot
+version: "2026.11.03"
+description: |
+  MapleStory Worlds / Artale 自動練功。啟動後是「暫停」，到這個 App 的網頁按「開始」才會動；
+  模擬 / 真的輸入在網頁上切換。設定存在 /work/msbot_config.yaml（部署新版不會動到）。
+run: tools/wingpu_app_run.sh
+env:
+  MSBOT_CFG: wingpu_maple
+app_port: 8765
+sends_input: true
+start_paused_hint: 啟動後是「暫停」：打開網頁（「開啟網頁」）按「開始」才會送按鍵。
+stop:
+  signal: SIGTERM   # the bot lets go of every key, then exits
+  timeout: 10

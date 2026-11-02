@@ -12,6 +12,8 @@
 # MapleStoryAutoLevelUp.old-<time> the first time. User state lives outside the
 # code directory (/work/msbot_config.yaml, /work/control.json, /work/debug/),
 # so deploying never touches it. The venv (/work/venv-msbot) is not changed.
+# It also makes the wingpu App: /work/apps/msbot -> /work/MapleStoryAutoLevelUp (wingpu-app.yaml at the top of
+# this repo), so the manager page's App list can start / stop the bot. A real folder named msbot is left alone.
 # Commit first: uncommitted changes are not deployed.
 set -eu
 REF=${1:-HEAD}
@@ -42,6 +44,12 @@ fi
 git -C "$D" fetch -q "$B" "wingpu-sync-tmp:refs/remotes/sync/deployed" --force
 git -C "$D" -c advice.detachedHead=false checkout -q -f --detach refs/remotes/sync/deployed
 rm -f "$B"
+mkdir -p /work/apps
+if [ -L /work/apps/msbot ] || [ ! -e /work/apps/msbot ]; then
+    ln -sfn "$D" /work/apps/msbot
+else
+    echo "note: /work/apps/msbot is not a symlink - left as it is" >&2
+fi
 echo "deployed $(git -C "$D" rev-parse --short HEAD): $(git -C "$D" log -1 --format=%s)"'
 
 if [ -n "$HOST" ]; then
@@ -49,4 +57,4 @@ if [ -n "$HOST" ]; then
 else
     docker exec -i "$CT" sh -c "$REMOTE" < "$TMP/msbot.bundle"
 fi
-echo "restart the bot to load it (web UI: 重新啟動, or POST ./restart)"
+echo "restart the bot to load it (manager page: App -> 重新啟動, or the bot's web UI: 重新啟動)"

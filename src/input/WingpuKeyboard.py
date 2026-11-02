@@ -99,6 +99,7 @@ class WingpuKeyboard:
         self.counts = collections.Counter()
         self.unknown_keys = set()
         self.click_mapper = None # window coord -> guest coord (set by WingpuCapturor)
+        self.blocked_logged = 0.0 # last time "input blocked" was logged
 
     def configure(self, cfg, live=False):
         '''
@@ -130,13 +131,22 @@ class WingpuKeyboard:
     def _send(self, msg):
         '''
         The only place that talks to the guest. Gated by dry_run.
+        True = the guest got it (or dry run).
         '''
         if self.dry_run:
-            return
+            return True
         try:
             self.vm._call(msg)  # pylint: disable=protected-access
+            return True
         except Exception as e:
-            logger.error(f"[WingpuKeyboard] input failed {msg}: {e}")
+            if str(e).startswith("input blocked"):
+                # the manager page's 禁止送輸入 switch: every request fails until it is off; log it now and then
+                if time.time() - self.blocked_logged > 30:
+                    self.blocked_logged = time.time()
+                    logger.warning(f"[WingpuKeyboard] input blocked by the manager page (禁止送輸入): {msg}")
+            else:
+                logger.error(f"[WingpuKeyboard] input failed {msg}: {e}")
+            return False
 
     def _code(self, key):
         code = to_key_code(key)
@@ -154,7 +164,8 @@ class WingpuKeyboard:
                 return
             self.pressed.add(code)
             self._record(f"key_down {code} ('{key}')")
-            self._send({"t": "key", "code": code, "down": True})
+            if not self._send({"t": "key", "code": code, "down": True}):
+                self.pressed.discard(code) # not down in the guest: press it again next time
 
     def key_up(self, key, force=False):
         code = self._code(key)

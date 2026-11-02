@@ -47,6 +47,21 @@ python3 -m venv --system-site-packages /work/venv-msbot
 /work/venv-msbot/bin/pip install -r /work/MapleStoryAutoLevelUp/requirements-wingpu.txt
 ```
 
+## 在管理頁開關（wingpu App）
+
+這個 repo 最上層的 `wingpu-app.yaml` 讓 bot 成為容器的 **App**（wingpu repo `docs/CONTAINERS.md`「App」）：
+`tools/wingpu_sync.sh` 部署時建立 `/work/apps/msbot` → `/work/MapleStoryAutoLevelUp`，管理頁 VM 的「App」分頁就有
+「楓之谷練功 Bot」：開 / 關、重新啟動、記錄、「VM 開機時自動啟動」、「當掉自動重啟」，下面是 bot 的網頁（:8765）。
+
+- 啟動 = `tools/wingpu_app_run.sh`：寫 `/work/control.json {"run": false}`（**一律停在暫停**，網頁按「開始」才動），再
+  `exec /work/venv-msbot/bin/python -m src.engine.MapleStoryAutoLevelUp --cfg $MSBOT_CFG`（manifest 的 `env` 設 `wingpu_maple`）。
+  log 在管理頁的「記錄」（`/work/logs/<run>-app-msbot.log`）。
+- 關 = SIGTERM：bot 放開所有按鍵再結束（10 秒沒結束才 SIGKILL，之後平台也會放開它按著的鍵）。網頁的「結束」= 正常結束（exit 0，
+  不會被自動重啟）；網頁的「重新啟動」是同一個 PID 的 `execv`，管理頁看到的還是同一個 run。
+- 管理頁的 **「禁止送輸入」** 打開時，bot 的每個按鍵 / 點擊都會被 wgsd 擋下（`input blocked`），平台會放開 bot 按著的鍵；
+  bot 繼續跑但送不出東西，log 每 30 秒記一次 warning。按下失敗的鍵不算「按著」，恢復允許後會再按。
+- 舊的方式（`docker exec -d wingpu-ct-maple /work/scripts/run_bot.sh`）還能用，但那樣啟動的 bot 管理頁看不到、關不掉。
+
 ## 執行
 
 ```sh
