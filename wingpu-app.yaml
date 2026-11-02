@@ -1,11 +1,16 @@
 # wingpu App (docs/CONTAINERS.md "App" in the wingpu repo): the manager page starts / stops this bot.
-# The app folder is /work/apps/msbot -> /work/MapleStoryAutoLevelUp (tools/wingpu_sync.sh makes the link).
+# Install it from the manager page (App -> 安裝 App -> git: http://192.168.66.2/LegBone/maplestoryautolevelup.git,
+# branch wingpu-backend; a deploy token for the private repo), or the old way: /work/apps/msbot ->
+# /work/MapleStoryAutoLevelUp (tools/wingpu_sync.sh makes the link).
+# The keys python / health need wgct phase 2 (image wingpu-ct:apps2 or later): an older wgct says
+# "field python not found" - deploy the new image before syncing this file to a container.
 name: msbot
 title: 楓之谷練功 Bot
 version: "2026.11.03"
 description: |
   MapleStory Worlds / Artale 自動練功。啟動後是「暫停」，到這個 App 的網頁按「開始」才會動；
-  模擬 / 真的輸入在網頁上切換。設定存在 /work/msbot_config.yaml（部署新版不會動到）。
+  模擬 / 真的輸入在網頁上切換。設定存在 /work/msbot_config.yaml、/work/control.json、/work/nametag/、
+  /work/routes/、/work/debug/（不在程式資料夾裡：更新 / 退回版本都不會動到）。
 run: tools/wingpu_app_run.sh
 env:
   MSBOT_CFG: wingpu_maple
@@ -15,3 +20,9 @@ start_paused_hint: 啟動後是「暫停」：打開網頁（「開啟網頁」�
 stop:
   signal: SIGTERM   # the bot lets go of every key, then exits
   timeout: 10
+python:             # installed apps: a venv (with the image's numpy / opencv / wingpu SDK) + these
+  requirements: requirements-wingpu.txt
+  system_site_packages: true
+health:             # an update must have the web UI answering within 90 s, or the previous version comes back
+  timeout: 90
+  stable: 5
