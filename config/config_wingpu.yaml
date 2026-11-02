@@ -63,5 +63,15 @@ monster_detect:
   search: "roi"
 
 player_detect:
-  # auto: party bar when found, else the nametag (web UI 截取名牌 -> /work/nametag/nametag.png)
-  mode: "auto"
+  # party_bar (default): the party HP bar only. nametag / auto (party bar, then
+  # nametag) are opt-in in the web UI and need a nametag template (截取名牌).
+  mode: "party_bar"
+
+rune_find:
+  # Rune messages / rune / arrow mini-game are not verified at wingpu
+  # resolutions (no frames with a rune yet): off until switched on in the web UI.
+  enable: False
+
+watchdog:
+  # "no attack for last_attack_timeout s -> change channel / go home": opt-in
+  last_attack_enable: False

@@ -43,6 +43,10 @@ legend{font-weight:600;padding:0 4px}
 dialog{border:none;border-radius:12px;max-width:420px;width:calc(100% - 32px);background:var(--card);color:var(--fg)}
 dialog::backdrop{background:rgba(0,0,0,.5)}
 .msg{font-size:13px;color:var(--mut)}
+.banner{background:var(--live);color:#fff;font-weight:700;padding:10px 14px;text-align:center;font-size:16px;position:sticky;top:0;z-index:6}
+#feat{padding:6px 12px;background:var(--card);border-bottom:1px solid var(--line);font-size:13px}
+.chip{display:inline-block;padding:1px 8px;margin:2px;border-radius:999px;border:1px solid var(--ok);color:var(--ok)}
+details>summary{cursor:pointer;font-weight:600}
 .pal{display:flex;flex-wrap:wrap;gap:6px}
 .pal button{display:flex;align-items:center;gap:6px;padding:6px 8px;min-height:34px;font-size:13px}
 .pal button.sel{outline:3px solid var(--acc)}
@@ -59,6 +63,7 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
 </style>
 </head>
 <body>
+<div id="live-banner" class="banner" hidden>⚠ 真的輸入中：bot 正在對遊戲按鍵。要停：按「暫停」或把下面的開關切回模擬。</div>
 <header>
   <h1>楓之谷練功 Bot</h1>
   <span id="b-run" class="badge">讀取中…</span>
@@ -67,6 +72,7 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
   <span id="b-pending" class="badge b-warn" hidden>有設定要重新啟動後才生效</span>
   <span id="b-cycle" class="badge" hidden></span>
 </header>
+<div id="feat"><span class="msg">已啟用功能：</span><span id="feat-list">…</span></div>
 <main>
   <section>
     <h2>畫面</h2>
@@ -85,7 +91,7 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
       <button onclick="restart()">重新啟動</button>
       <button class="danger" onclick="if(confirm('結束 bot？之後要從容器重新執行。'))post('quit')">結束</button>
     </div>
-    <p class="msg">暫停：放開所有按鍵，只看不動。重新啟動：bot 程式重新開始（套用已儲存的設定，回到模擬模式）。</p>
+    <p class="msg">暫停：放開所有按鍵，只看不動。重新啟動：bot 程式重新開始（套用已儲存的設定；回到模擬模式，除非切到真的輸入時勾了「記住」）。</p>
     <div id="sw" class="switch">
       <input type="checkbox" id="live-sw" style="width:22px;height:22px">
       <div><b id="sw-text">模擬模式：不會送任何按鍵到遊戲</b><div class="msg">切到「真的輸入」要確認；預設每次重新啟動都回到模擬模式。</div></div>
@@ -108,12 +114,12 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
     <table id="buffst"></table>
   </section>
 
-  <section class="wide">
+  <section class="wide" id="sec-cycle">
     <h2>練功 / 休息循環</h2>
     <table id="cyclest" class="cycle"></table>
   </section>
 
-  <section class="wide">
+  <section class="wide" id="sec-rp" hidden>
     <h2>安全點與安全路線（目前地圖：<span id="rp-map"></span>）</h2>
     <p class="msg">「休息方式＝走到安全點」時用。點小地圖設安全點；要爬繩子 / 梯子才到得了的安全點，請畫一條「安全路線」：
       跟練功路線同一套顏色（下面的圖例），從練功區畫到安全點。沒有安全路線時，只有安全點跟角色在同一層才會走過去，否則原地休息。
@@ -142,7 +148,7 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
   </section>
 
   <section class="wide">
-    <h2>截取名牌（找玩家用）</h2>
+    <details id="nt-details"><summary>截取名牌（工具；只有「玩家偵測」選名牌 / 自動時才會用到）</summary>
     <p class="msg">玩家偵測「名牌」或「自動」時用。按「取一張畫面」，在畫面上拖一個框把自己的名字框起來（有組隊時會自動框好，確認一下就好），再按「存成名牌」。
       存到容器的 <code id="nt-path"></code>，不在程式目錄裡；存了馬上生效。</p>
     <div class="row">
@@ -161,6 +167,7 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
         <div class="ntwrap" id="nt-wrap"><img id="nt-img" alt="畫面"><canvas id="nt-cv"></canvas></div>
       </div>
     </div>
+    </details>
   </section>
 
   <section class="wide">
@@ -210,6 +217,14 @@ const LABELS = {
   'key.return_home': ['回城卷鍵', ''],
   'buff_skill.items': ['Buff 技能', '每列一個 Buff：名稱（可空）、按鍵、冷卻秒數、啟用、啟動時先放'],
   'hunt_cycle.enable': ['啟用練功 / 休息循環', ''],
+  'rune_find.enable': ['解符文', '出現符文訊息時去找符文、解箭頭（wingpu 解析度還沒驗證過，預設關）'],
+  'watchdog.last_attack_enable': ['太久沒攻擊就處理', '超過下面的秒數沒攻擊：換頻道或回城（dry run 不做）'],
+  'watchdog.last_attack_timeout_action': ['沒攻擊時做什麼', 'change_channel：換頻道（要開「有人就換頻道」的點擊流程）；go_home：回城並停止'],
+  'scheduled_channel_switching.enable': ['定時換頻道', '會點選單換頻道（點擊座標在這個解析度沒驗證）'],
+  'channel_change.enable': ['有其他玩家就換頻道', '會點選單換頻道（點擊座標在這個解析度沒驗證）'],
+  'health_monitor.return_home_if_no_potion': ['沒藥時回城', 'HP 一直低於門檻（喝不到水）就用回城卷並停止'],
+  'health_monitor.force_heal': ['先補血再打', 'HP 低時先喝水、暫停攻擊'],
+  'wingpu.ensure_party_on_start': ['開始時檢查組隊', '開始時按組隊鍵、沒隊伍就點「建立」'],
   'hunt_cycle.hunt_minutes': ['每輪練功（分鐘）', '最少～最多，每輪隨機'],
   'hunt_cycle.rest_minutes': ['每輪休息（分鐘）', '最少～最多，每輪隨機'],
   'hunt_cycle.rest_action': ['休息方式', 'stop：原地停手（還會喝水）；safe_spot：走到安全點再停；go_home：按回城後結束這次'],
@@ -230,7 +245,7 @@ const LABELS = {
   'system.fps_limit_window_capturor': ['擷取畫面每秒幾張', ''],
   'wingpu.debug_interval': ['狀態 / 偵測圖更新間隔（秒）', ''],
   'wingpu.redetect_interval': ['重找遊戲視窗間隔（秒）', ''],
-  'player_detect.mode': ['玩家偵測', 'auto：先找隊伍紅條，找不到用名牌；party_bar：只用隊伍紅條（要組隊）；nametag：只用名牌（要先截取名牌）'],
+  'player_detect.mode': ['玩家偵測', 'party_bar（預設）：只用隊伍紅條（要組隊）；nametag：只用名牌；auto：先紅條、找不到用名牌。名牌 / 自動要先用「截取名牌」截一張'],
   'player_detect.nametag_thres': ['名牌比對門檻', '0.05–0.6，越小越嚴（實測本人 0.00–0.20、別的 0.45 以上）'],
   'monster_detect.search': ['找怪範圍', 'roi：玩家周圍的框（下面四個值）；full：整個畫面（慢、誤判多）；attack：攻擊範圍＋外擴（上游）'],
   'monster_detect.roi_left': ['找怪框 左', '參考像素，玩家往左'],
@@ -261,13 +276,54 @@ const GROUPS = [
   ['按鍵', ['key.directional_attack', 'key.aoe_skill', 'key.jump', 'key.teleport', 'key.add_hp', 'key.add_mp', 'key.party', 'key.return_home']],
   ['Buff 技能', ['buff_skill.items']],
   ['找玩家', ['player_detect.mode', 'player_detect.nametag_thres']],
-  ['喝水', ['health_monitor.enable', 'health_monitor.add_hp_percent', 'health_monitor.add_mp_percent', 'health_monitor.add_hp_cooldown', 'health_monitor.add_mp_cooldown']],
+  ['喝水', ['health_monitor.enable', 'health_monitor.add_hp_percent', 'health_monitor.add_mp_percent', 'health_monitor.add_hp_cooldown', 'health_monitor.add_mp_cooldown', 'health_monitor.fps_limit', 'health_monitor.force_heal', 'health_monitor.return_home_if_no_potion', 'health_monitor.return_home_watch_dog_timeout']],
   ['攻擊與偵測', ['directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown', 'aoe_skill.range_x', 'aoe_skill.range_y', 'monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search_box_margin', 'monster_detect.search', 'monster_detect.roi_left', 'monster_detect.roi_right', 'monster_detect.roi_up', 'monster_detect.roi_down', 'monster_detect.interval_frames']],
   ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
   ['安全與其他', ['edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'system.fps_limit_main']],
-  ['其他時間設定', ['watchdog.last_attack_timeout', 'scheduled_channel_switching.interval_seconds', 'health_monitor.return_home_watch_dog_timeout', 'health_monitor.fps_limit', 'buff_skill.action_cooldown', 'aoe_skill.cooldown', 'teleport.cooldown', 'rune_find.near_rune_duration', 'patrol.patrol_attack_interval', 'player_detect.nametag_local_timeout', 'system.fps_limit_window_capturor', 'wingpu.debug_interval', 'wingpu.redetect_interval']],
+  ['其他功能開關（預設都關）', ['rune_find.enable', 'rune_find.near_rune_duration', 'watchdog.last_attack_enable', 'watchdog.last_attack_timeout', 'watchdog.last_attack_timeout_action', 'scheduled_channel_switching.enable', 'scheduled_channel_switching.interval_seconds', 'channel_change.enable', 'wingpu.ensure_party_on_start']],
+  ['其他時間設定', ['buff_skill.action_cooldown', 'aoe_skill.cooldown', 'teleport.cooldown', 'patrol.patrol_attack_interval', 'player_detect.nametag_local_timeout', 'system.fps_limit_window_capturor', 'wingpu.debug_interval', 'wingpu.redetect_interval']],
 ];
 let CFG = null, LIVE = false;
+// sub-settings shown only while their feature is on (form values)
+const DEPS = {
+  'hunt_cycle.hunt_minutes': v => v['hunt_cycle.enable'],
+  'hunt_cycle.rest_minutes': v => v['hunt_cycle.enable'],
+  'hunt_cycle.rest_action': v => v['hunt_cycle.enable'],
+  'hunt_cycle.safe_spot_timeout': v => v['hunt_cycle.enable'] && v['hunt_cycle.rest_action'] === 'safe_spot',
+  'hunt_cycle.session_hours': v => v['hunt_cycle.enable'],
+  'hunt_cycle.window_start': v => v['hunt_cycle.enable'],
+  'hunt_cycle.window_end': v => v['hunt_cycle.enable'],
+  'player_detect.nametag_thres': v => v['player_detect.mode'] !== 'party_bar',
+  'player_detect.nametag_local_timeout': v => v['player_detect.mode'] !== 'party_bar',
+  'monster_detect.roi_left': v => v['monster_detect.search'] === 'roi',
+  'monster_detect.roi_right': v => v['monster_detect.search'] === 'roi',
+  'monster_detect.roi_up': v => v['monster_detect.search'] === 'roi',
+  'monster_detect.roi_down': v => v['monster_detect.search'] === 'roi',
+  'watchdog.last_attack_timeout': v => v['watchdog.last_attack_enable'],
+  'watchdog.last_attack_timeout_action': v => v['watchdog.last_attack_enable'],
+  'scheduled_channel_switching.interval_seconds': v => v['scheduled_channel_switching.enable'],
+  'health_monitor.add_hp_percent': v => v['health_monitor.enable'],
+  'health_monitor.add_mp_percent': v => v['health_monitor.enable'],
+  'health_monitor.add_hp_cooldown': v => v['health_monitor.enable'],
+  'health_monitor.add_mp_cooldown': v => v['health_monitor.enable'],
+  'health_monitor.fps_limit': v => v['health_monitor.enable'],
+  'health_monitor.force_heal': v => v['health_monitor.enable'],
+  'health_monitor.return_home_if_no_potion': v => v['health_monitor.enable'],
+  'health_monitor.return_home_watch_dog_timeout': v => v['health_monitor.enable'] && v['health_monitor.return_home_if_no_potion'],
+  'rune_find.near_rune_duration': v => v['rune_find.enable'],
+  'teleport.cooldown': v => (v['key.teleport'] || '').trim() !== '',
+};
+function applyDeps() {
+  if (!CFG) return;
+  const v = collect();
+  for (const [name, pred] of Object.entries(DEPS)) {
+    const el = document.querySelector(`label.f[data-f="${name}"]`);
+    if (el) el.hidden = !pred(v);
+  }
+  // sections that belong to an option
+  const vals = CFG.values;
+  $('sec-rp').hidden = !(vals['hunt_cycle.enable'] && vals['hunt_cycle.rest_action'] === 'safe_spot');
+}
 
 async function api(path, body) {
   const opt = body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)};
@@ -293,6 +349,9 @@ async function poll() {
   $('b-lost').textContent = '偵測不到：' + (det.lost_reason || []).map(r => r === 'minimap' ? '小地圖' : r === 'player' ? '玩家' : r).join('、') + '（停手中）';
   $('b-lost').className = 'badge b-bad';
   LIVE = inp.dry_run === false;
+  $('live-banner').hidden = !LIVE;
+  const fs = (s.features || []).filter(f => f.on);
+  $('feat-list').innerHTML = fs.length ? fs.map(f => `<span class="chip">${esc(f.cn)}</span>`).join('') : '<span class="msg">（只有基本練功）</span>';
   $('b-input').textContent = LIVE ? '真的輸入中' : '模擬（不送輸入）';
   $('b-input').className = 'badge ' + (LIVE ? 'b-live' : '');
   $('live-sw').checked = LIVE;
@@ -338,7 +397,7 @@ async function poll() {
     $('b-cycle').hidden = true;
     $('cyclest').innerHTML = '<tr><td class="msg">沒有啟用（在下面「設定 → 練功 / 休息循環」打開）</td><td></td></tr>';
   }
-  if (s.minimap) { RP.player = s.minimap.player_global; rpDraw(); }
+  if (s.minimap && !$('sec-rp').hidden) { RP.player = s.minimap.player_global; rpDraw(); }
   const bs = s.buffs || [];
   $('buff-note').textContent = LIVE ? '' : '（模擬：「放」= 會放，沒有送出）';
   $('buffst').innerHTML = bs.length ? '<tr><td>Buff</td><td>下次 / 上次</td></tr>' + bs.map(b =>
@@ -394,6 +453,7 @@ function fieldHtml(f, v) {
     input = `<div id="${id}"></div><button type="button" onclick="addBuff({})">＋ 新增 Buff</button>`;
   } else if (f.kind === 'range') {
     const a = (v || [])[0] ?? '', b = (v || [])[1] ?? '';
+    f.range = f.range || [0, 100000];
     input = `<div class="row" id="${id}" style="flex-wrap:nowrap"><input class="ra" type="number" inputmode="decimal" step="any" min="${f.range[0]}" max="${f.range[1]}" value="${a}" placeholder="最少"><span>～</span><input class="rb" type="number" inputmode="decimal" step="any" min="${f.range[0]}" max="${f.range[1]}" value="${b}" placeholder="最多"></div>`;
   } else if (f.kind === 'hhmm') {
     input = `<input id="${id}" type="time" value="${esc(v ?? '')}">`;
@@ -403,7 +463,7 @@ function fieldHtml(f, v) {
     input = `<input id="${id}" value="${esc(v ?? '')}" autocapitalize="off" autocomplete="off" spellcheck="false">`;
   }
   const span = f.kind === 'buffs' ? ' style="grid-column:1/-1"' : '';
-  return `<label class="f"${span}><b>${esc(label)}</b>${input}${help ? `<span class="h">${esc(help)}</span>` : ''}<span class="err" id="e-${id}"></span></label>`;
+  return `<label class="f" data-f="${f.name}"${span}><b>${esc(label)}</b>${input}${help ? `<span class="h">${esc(help)}</span>` : ''}<span class="err" id="e-${id}"></span></label>`;
 }
 function renderRoutes() {
   const map = $('f-bot-map').value, m = CFG.maps.find(x => x.id === map);
@@ -431,11 +491,15 @@ async function loadConfig(keepMsg) {
     html += `<fieldset><legend>${esc(title)}</legend><div class="grid">` + names.map(n => fieldHtml(byName[n], CFG.values[n])).join('') + '</div></fieldset>';
   }
   $('form').innerHTML = html;
+  $('nt-details').open = CFG.values['player_detect.mode'] !== 'party_bar';
+  $('form').onchange = applyDeps;
+  $('form').oninput = applyDeps;
   renderRoutes();
   (CFG.values['buff_skill.items'] || []).forEach(addBuff);
+  applyDeps();
   ntStatus();
   if (!keepMsg) $('save-msg').textContent = '';
-  rpLoad();
+  if (CFG.values['hunt_cycle.enable'] && CFG.values['hunt_cycle.rest_action'] === 'safe_spot') rpLoad();
 }
 function collect() {
   const v = {};

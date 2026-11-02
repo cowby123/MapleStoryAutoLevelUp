@@ -477,8 +477,9 @@ class MapleStoryAutoBot:
         # Init rune solver
         self.rune_solver = RuneSolver(self.cfg)
 
-        # Nametag tracker (player_detect.mode nametag / auto)
-        self.init_nametag()
+        # Nametag tracker: only when player_detect.mode is nametag / auto (opt-in)
+        if self.player_detect_mode() in ("nametag", "auto"):
+            self.init_nametag()
 
         # Hunt / rest cycles
         self.hunt_cycle = HuntCycle(self.cfg.get("hunt_cycle"), log=logger.info)
@@ -2345,6 +2346,7 @@ class MapleStoryAutoBot:
         ####################### Check if last attack is timeout
         dt = time.time() - self.t_last_attack
         if self.cfg['bot']['mode'] == 'normal' and \
+            self.cfg["watchdog"].get("last_attack_enable", True) and \
             dt > self.cfg["watchdog"]["last_attack_timeout"]:
             logger.info(f"[Attack Timeout] Last attack timeout for {round(dt, 2)} seconds")
             cfg_action = self.cfg["watchdog"]["last_attack_timeout_action"]

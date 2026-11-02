@@ -103,6 +103,15 @@ FIELDS = [
     ("system", "fps_limit_window_capturor", "int", (1, 30)),
     ("wingpu", "debug_interval", "num", (0.5, 60)),
     ("wingpu", "redetect_interval", "num", (1, 600)),
+    # optional behaviours (switches)
+    ("rune_find", "enable", "bool", None),
+    ("watchdog", "last_attack_enable", "bool", None),
+    ("watchdog", "last_attack_timeout_action", "choice", ["change_channel", "go_home"]),
+    ("scheduled_channel_switching", "enable", "bool", None),
+    ("channel_change", "enable", "bool", None),
+    ("health_monitor", "return_home_if_no_potion", "bool", None),
+    ("health_monitor", "force_heal", "bool", None),
+    ("wingpu", "ensure_party_on_start", "bool", None),
 ]
 
 # Applied when the bot restarts; everything else applies at once (apply_live)
@@ -195,7 +204,7 @@ class WebUI:
             "values": values,
             "fields": [{"name": f"{s}.{k}", "kind": kind,
                         "choices": extra if kind == "choice" else None,
-                        "range": extra if kind in ("num", "int", "floats") else None}
+                        "range": extra if kind in ("num", "int", "floats", "range") else None}
                        for s, k, kind, extra in FIELDS],
             "maps": self.maps(),
             "user_file": self.path,
@@ -214,6 +223,7 @@ class WebUI:
         '''
         errors = {}
         clean = {}
+        live_input = not get_keyboard().dry_run
         spec = {f"{s}.{k}": (s, k, kind, extra) for s, k, kind, extra in FIELDS}
         maps = {m["id"]: m for m in self.maps()}
         for name, v in values.items():
@@ -271,6 +281,9 @@ class WebUI:
                     if a > b:
                         raise ValueError("最少不能大於最多")
                     v = [int(a) if a == int(a) else a, int(b) if b == int(b) else b]
+                    if live_input and sec == "hunt_cycle" and a < 1:
+                        # guard: very short cycles are for dry-run tests only
+                        raise ValueError("真的輸入時，最少要 1 分鐘（更短只能在模擬模式測試）")
                 elif kind == "hhmm":
                     v = "" if v is None else str(v).strip()
                     if v:
@@ -301,6 +314,11 @@ class WebUI:
                 continue
             clean.setdefault(sec, {})[key] = v
         # cross checks
+        mode = (clean.get("player_detect") or {}).get("mode")
+        if mode in ("nametag", "auto"):
+            path = self.nametag_path()
+            if not os.path.exists(path):
+                errors["player_detect.mode"] = "還沒有名牌模板：先用「截取名牌」截一張，再選名牌 / 自動"
         m = (clean.get("bot") or {}).get("map") or _get(self.control.cfg_unscaled(), "bot", "map")
         routes = (clean.get("route") or {}).get("files")
         if routes and m in maps:
@@ -379,6 +397,13 @@ class WebUI:
             if hasattr(cap, "redetect_interval"):
                 cap.redetect_interval = float((cfg.get("wingpu") or {}).get("redetect_interval", 5))
         self.control.debug_interval = float((cfg.get("wingpu") or {}).get("debug_interval", 2))
+        if "player_detect" in clean and "mode" in clean["player_detect"]:
+            # nametag on: load the template; off: drop it (never used)
+            if clean["player_detect"]["mode"] in ("nametag", "auto"):
+                if getattr(bot, "nametag", None) is None:
+                    bot.init_nametag()
+            else:
+                bot.nametag = None
         tr = getattr(bot, "nametag", None)
         if tr is not None:
             pd = cfg.get("player_detect") or {}
@@ -557,11 +582,29 @@ class WebUI:
     ###############
     ### Nametag ###
     ###############
+    def nametag_path(self):
+        tr = getattr(self.bot, "nametag", None)
+        if tr is not None:
+            return tr.path
+        pd = self.bot.cfg.get("player_detect") or {}
+        from src.utils.nametag import default_dir
+        return pd.get("nametag_template") or os.path.join(default_dir(), "nametag.png")
+
     def nametag_status(self):
         tr = getattr(self.bot, "nametag", None)
-        st = tr.status() if tr is not None else {"loaded": False}
-        st["exists"] = bool(tr is not None and os.path.exists(tr.path))
-        st["mtime"] = int(os.path.getmtime(tr.path)) if st["exists"] else None
+        path = self.nametag_path()
+        st = tr.status() if tr is not None else {"loaded": False, "path": path, "meta": None, "size": None}
+        st["in_use"] = tr is not None
+        st["exists"] = os.path.exists(path)
+        st["mtime"] = int(os.path.getmtime(path)) if st["exists"] else None
+        if st["exists"] and tr is None:
+            img = cv2.imread(path)
+            st["size"] = list(img.shape[1::-1]) if img is not None else None
+            side = os.path.splitext(path)[0] + ".json"
+            if os.path.exists(side):
+                import json
+                with open(side, "r", encoding="utf-8") as f:
+                    st["meta"] = json.load(f)
         return st
 
     def nametag_snapshot(self):
@@ -603,15 +646,16 @@ class WebUI:
             return {"ok": False, "errors": {"nametag": "這張畫面已過期，請重新取一張"}}
         img, player, scale = snap
         tr = getattr(self.bot, "nametag", None)
-        path = tr.path if tr is not None else None
-        out_dir, name = os.path.split(path) if path else (None, "nametag.png")
+        path = self.nametag_path()
+        out_dir, name = os.path.split(path)
         try:
             saved, meta = save_template(img, rect, scale, player, out_dir=out_dir,
                                         name=os.path.splitext(name)[0])
         except ValueError as e:
             return {"ok": False, "errors": {"nametag": str(e)}}
         # check: does the new template find itself in that frame?
-        test = NametagTracker(saved, thres=tr.thres if tr is not None else 0.3)
+        test = NametagTracker(saved, thres=tr.thres if tr is not None else
+                              float((self.bot.cfg.get("player_detect") or {}).get("nametag_thres", 0.3)))
         test.set_scale(scale)
         ui_y = min(img.shape[0], self.bot.cfg["ui_coords"]["ui_y_start"])
         p = test.find(img[:ui_y])
@@ -623,16 +667,18 @@ class WebUI:
                          "score": test.last_score}}
 
     def nametag_png(self):
-        tr = getattr(self.bot, "nametag", None)
-        if tr is None or not os.path.exists(tr.path):
+        path = self.nametag_path()
+        if not os.path.exists(path):
             return None
-        with open(tr.path, "rb") as f:
+        with open(path, "rb") as f:
             return f.read()
 
     def nametag_delete(self):
+        path = self.nametag_path()
+        if os.path.exists(path):
+            os.replace(path, path + ".bak")
         tr = getattr(self.bot, "nametag", None)
-        if tr is not None and os.path.exists(tr.path):
-            os.replace(tr.path, tr.path + ".bak")
+        if tr is not None:
             tr.reload_if_changed()
         return {"ok": True}
 

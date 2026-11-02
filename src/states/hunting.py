@@ -8,6 +8,8 @@ class HuntingState(State):
         pass
 
     def check_transitions(self):
+        if not self.bot.cfg["rune_find"].get("enable", True):
+            return None # rune finding switched off (rune_find.enable)
         if self.bot.rune_solver.is_rune_enable(
             self.bot.img_frame_gray, self.bot.img_frame_debug) or \
             self.bot.rune_solver.is_rune_warning(

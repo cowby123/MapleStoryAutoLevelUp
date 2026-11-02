@@ -256,6 +256,7 @@ class WingpuControl:
             "kb_command": f"{kb.cmd_left_right} {kb.cmd_up_down} {kb.cmd_action}" if kb else None,
             "kb_enabled": kb.is_enable if kb else None,
             "kb_hold": getattr(kb, "is_hold", False) if kb else None,
+            "features": self.features(),
             "buffs": self.buff_status(),
             "player_source": getattr(bot, "player_source", None),
             "hunt_cycle": dict(bot.hunt_cycle.status(), safe_spot=bot.safe_spot(), plan=bot.safe_plan,
@@ -269,6 +270,37 @@ class WingpuControl:
         }
         self.status = status
         return status
+
+    def features(self):
+        '''
+        Optional behaviours and whether they are on (the page's 已啟用功能 summary)
+        '''
+        c = self.bot.cfg
+        hc = c.get("hunt_cycle") or {}
+        b = c.get("buff_skill") or {}
+        pd = (c.get("player_detect") or {}).get("mode", "party_bar")
+        md = c.get("monster_detect") or {}
+        g = lambda sec, key, d=False: bool((c.get(sec) or {}).get(key, d))
+        return [
+            {"id": "health", "cn": "自動喝水", "on": g("health_monitor", "enable", True)},
+            {"id": "buffs", "cn": f"Buff（{len(b.get('keys') or [])} 個）", "on": bool(b.get("keys"))},
+            {"id": "nametag", "cn": "名牌找玩家" + ("（自動）" if pd == "auto" else ""), "on": pd in ("nametag", "auto")},
+            {"id": "hunt_cycle", "cn": "練功 / 休息循環", "on": bool(hc.get("enable"))},
+            {"id": "safe_spot", "cn": "休息走到安全點", "on": bool(hc.get("enable")) and hc.get("rest_action") == "safe_spot"},
+            {"id": "go_home_rest", "cn": "休息時回城", "on": bool(hc.get("enable")) and hc.get("rest_action") == "go_home"},
+            {"id": "session", "cn": "總時數 / 每日時段", "on": bool(hc.get("enable")) and
+             (bool(hc.get("session_hours")) or bool(hc.get("window_start")))},
+            {"id": "rune", "cn": "解符文", "on": g("rune_find", "enable", True)},
+            {"id": "last_attack", "cn": "太久沒攻擊就" + ("換頻道" if (c.get("watchdog") or {}).get("last_attack_timeout_action") == "change_channel" else "回城"),
+             "on": g("watchdog", "last_attack_enable", True)},
+            {"id": "channel_change", "cn": "有人就換頻道", "on": g("channel_change", "enable")},
+            {"id": "scheduled_channel", "cn": "定時換頻道", "on": g("scheduled_channel_switching", "enable")},
+            {"id": "no_potion_home", "cn": "沒藥回城", "on": g("health_monitor", "return_home_if_no_potion")},
+            {"id": "force_heal", "cn": "先補血再打", "on": g("health_monitor", "force_heal")},
+            {"id": "edge", "cn": "平台邊緣跳回", "on": g("edge_teleport", "enable", True)},
+            {"id": "party_start", "cn": "開始時檢查組隊", "on": g("wingpu", "ensure_party_on_start")},
+            {"id": "mob_full", "cn": "全畫面找怪", "on": md.get("search") == "full"},
+        ]
 
     def buff_status(self):
         '''
@@ -450,6 +482,10 @@ class WingpuControl:
 
             def do_POST(self):
                 path = urlparse(self.path).path.rstrip("/")
+                if self.headers.get("X-MSBot-Test") and not get_keyboard().dry_run:
+                    # guard: automated tests mark their requests; never while input is live
+                    self._json({"ok": False, "errors": {"test": "真的輸入中：拒絕測試用的請求（X-MSBot-Test）"}}, 403)
+                    return
                 try:
                     body = self._body()
                 except (ValueError, UnicodeDecodeError) as e:

@@ -225,6 +225,7 @@ watchdog:
   # If so, consider the player is stuck and perform recovery action 
   range: 10            # 🥶 Movement threshold (in pixels). If the player moves less than this, it's considered stuck.
   timeout: 10          # ⏱️ Time limit (in seconds). If the player stays still for this long, a random action is triggered.
+  last_attack_enable: True  # ✅ act when the player has not attacked for last_attack_timeout
   last_attack_timeout: 1200 # ⏳ Maximum time (in seconds) to not perform attack action
   last_attack_timeout_action: "change_channel" # 🧠 Options: "go_home" "change_channel"
 
@@ -296,6 +297,7 @@ rune_detect:
 
 rune_find:
   # 🧭 Rune-Finding Behavior
+  enable: True                     # ✅ look for runes (rune message -> find rune -> arrow mini-game)
   near_rune_duration: 10           # 🕒 Duration to interact with rune when a positive detection occurs
   rune_trigger_cooldown: 0.3       # 🕒 Cooldown for 'up' key rune trigger
   rune_trigger_distance_x: 20      # ↔️ only press 'up' when player distance(in pixel) to the rune is close enough.
