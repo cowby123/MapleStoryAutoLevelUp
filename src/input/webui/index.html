@@ -261,6 +261,15 @@ const LABELS = {
   'directional_attack.range_x': ['攻擊範圍 寬', '參考像素'],
   'directional_attack.range_y': ['攻擊範圍 高', '參考像素'],
   'directional_attack.cooldown': ['攻擊間隔（秒）', ''],
+  'directional_attack.shape': ['攻擊範圍形狀', 'rect：前方長方形（原本的）；wedge：遠程攻擊的扇形（近距離打不到、越遠上下越寬）'],
+  'directional_attack.wedge_preset': ['職業預設', 'archer 弓箭手、arrow_blow 弓箭手（爆裂箭）、mage 法師、energy_bolt 法師（魔力爪）、thief_claw 盜賊飛鏢、custom 自訂'],
+  'directional_attack.wedge_skill_level': ['射程技能等級', '弓：會心之眼 Lv（射程 +45+5×Lv）；飛鏢：精準暗器 Lv（+40+10×Lv，Lv15 = +200）；0 = 沒學'],
+  'directional_attack.wedge_start': ['近距離盲區', '遊戲像素：前方這麼近打不到（弓 / 飛鏢 65、法術 50）'],
+  'directional_attack.wedge_range': ['射程', '遊戲像素（選職業預設會自動算）'],
+  'directional_attack.wedge_slope': ['擴張斜率', '每往前幾像素，上下各多 1 像素（預設 4）'],
+  'directional_attack.wedge_center_height': ['中心高度', '扇形中線在腳上方幾像素（預設 28）'],
+  'directional_attack.wedge_feet_offset': ['腳的位置', 'bot 的玩家點往下幾像素是腳（實測 27）'],
+  'directional_attack.dead_zone_action': ['怪在盲區時', 'back_off：往反方向退開；ignore：不理它'],
   'aoe_skill.range_x': ['範圍技 寬', '參考像素'],
   'aoe_skill.range_y': ['範圍技 高', '參考像素'],
   'monster_detect.mode': ['怪物偵測方式', 'contour_only 最省'],
@@ -277,7 +286,7 @@ const GROUPS = [
   ['Buff 技能', ['buff_skill.items']],
   ['找玩家', ['player_detect.mode', 'player_detect.nametag_thres']],
   ['喝水', ['health_monitor.enable', 'health_monitor.add_hp_percent', 'health_monitor.add_mp_percent', 'health_monitor.add_hp_cooldown', 'health_monitor.add_mp_cooldown', 'health_monitor.fps_limit', 'health_monitor.force_heal', 'health_monitor.return_home_if_no_potion', 'health_monitor.return_home_watch_dog_timeout']],
-  ['攻擊與偵測', ['directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown', 'aoe_skill.range_x', 'aoe_skill.range_y', 'monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search_box_margin', 'monster_detect.search', 'monster_detect.roi_left', 'monster_detect.roi_right', 'monster_detect.roi_up', 'monster_detect.roi_down', 'monster_detect.interval_frames']],
+  ['攻擊與偵測', ['directional_attack.shape', 'directional_attack.wedge_preset', 'directional_attack.wedge_skill_level', 'directional_attack.wedge_start', 'directional_attack.wedge_range', 'directional_attack.wedge_slope', 'directional_attack.wedge_center_height', 'directional_attack.wedge_feet_offset', 'directional_attack.dead_zone_action', 'directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown', 'aoe_skill.range_x', 'aoe_skill.range_y', 'monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search_box_margin', 'monster_detect.search', 'monster_detect.roi_left', 'monster_detect.roi_right', 'monster_detect.roi_up', 'monster_detect.roi_down', 'monster_detect.interval_frames']],
   ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
   ['安全與其他', ['edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'system.fps_limit_main']],
   ['其他功能開關（預設都關）', ['rune_find.enable', 'rune_find.near_rune_duration', 'watchdog.last_attack_enable', 'watchdog.last_attack_timeout', 'watchdog.last_attack_timeout_action', 'scheduled_channel_switching.enable', 'scheduled_channel_switching.interval_seconds', 'channel_change.enable', 'wingpu.ensure_party_on_start']],
@@ -312,7 +321,29 @@ const DEPS = {
   'health_monitor.return_home_watch_dog_timeout': v => v['health_monitor.enable'] && v['health_monitor.return_home_if_no_potion'],
   'rune_find.near_rune_duration': v => v['rune_find.enable'],
   'teleport.cooldown': v => (v['key.teleport'] || '').trim() !== '',
+  'directional_attack.wedge_preset': v => v['directional_attack.shape'] === 'wedge',
+  'directional_attack.wedge_skill_level': v => v['directional_attack.shape'] === 'wedge' && ['archer', 'arrow_blow', 'thief_claw'].includes(v['directional_attack.wedge_preset']),
+  'directional_attack.wedge_start': v => v['directional_attack.shape'] === 'wedge',
+  'directional_attack.wedge_range': v => v['directional_attack.shape'] === 'wedge',
+  'directional_attack.wedge_slope': v => v['directional_attack.shape'] === 'wedge',
+  'directional_attack.wedge_center_height': v => v['directional_attack.shape'] === 'wedge',
+  'directional_attack.wedge_feet_offset': v => v['directional_attack.shape'] === 'wedge',
+  'directional_attack.dead_zone_action': v => v['directional_attack.shape'] === 'wedge',
+  'directional_attack.range_x': v => v['directional_attack.shape'] !== 'wedge',
 };
+// wedge presets (src/utils/attack_shape.py)
+const EOA = l => l <= 0 ? 0 : 45 + 5 * Math.min(l, 15);
+const KE = l => l <= 0 ? 0 : (l >= 15 ? 200 : 40 + 10 * l);
+const WEDGE = {archer: [65, 300, EOA], arrow_blow: [65, 350, EOA], mage: [50, 300, null], energy_bolt: [50, 350, null], thief_claw: [65, 200, KE]};
+function wedgePreset(e) {
+  const p = $('f-directional_attack-wedge_preset'), lv = $('f-directional_attack-wedge_skill_level');
+  if (!p) return;
+  if (e && (e.target.id === 'f-directional_attack-wedge_start' || e.target.id === 'f-directional_attack-wedge_range')) { p.value = 'custom'; return; }
+  const w = WEDGE[p.value];
+  if (!w) return;
+  $('f-directional_attack-wedge_start').value = w[0];
+  $('f-directional_attack-wedge_range').value = w[1] + (w[2] ? w[2](+lv.value || 0) : 0);
+}
 function applyDeps() {
   if (!CFG) return;
   const v = collect();
@@ -492,7 +523,7 @@ async function loadConfig(keepMsg) {
   }
   $('form').innerHTML = html;
   $('nt-details').open = CFG.values['player_detect.mode'] !== 'party_bar';
-  $('form').onchange = applyDeps;
+  $('form').onchange = e => { wedgePreset(e); applyDeps(); };
   $('form').oninput = applyDeps;
   renderRoutes();
   (CFG.values['buff_skill.items'] || []).forEach(addBuff);

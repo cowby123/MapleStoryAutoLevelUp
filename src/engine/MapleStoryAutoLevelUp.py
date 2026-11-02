@@ -32,6 +32,7 @@ from src.utils.resolution import (compute_scale, apply_scale, snapshot_base,
     scale_template, sc, MinimapScale, GREEN)
 from src.utils.nametag import NametagTracker, default_dir as nametag_default_dir
 from src.engine.HuntCycle import HuntCycle
+from src.utils.attack_shape import wedge_test, wedge_polygon
 from src.input.KeyBoardController import KeyBoardController, press_key
 if is_mac():
     from src.input.GameWindowCapturorForMac import GameWindowCapturor
@@ -921,6 +922,24 @@ class MapleStoryAutoBot:
 
         return nearest, nearest_up_down  # if not found return none
 
+    def wedge_params(self):
+        '''
+        (start, range, slope, center_dy) of the directional wedge in frame
+        pixels, or None when directional_attack.shape is "rect"
+        '''
+        da = self.cfg["directional_attack"]
+        if self.cfg["bot"]["attack"] != "directional" or da.get("shape", "rect") != "wedge":
+            return None
+        center_dy = da.get("wedge_feet_offset", 27) - da.get("wedge_center_height", 28)
+        return (da.get("wedge_start", 65), da.get("wedge_range", 300),
+                max(0.5, float(da.get("wedge_slope", 4))), center_dy)
+
+    def monster_box(self, monster):
+        '''monster dict -> (x, y, w, h); "size" is (h, w) (get_monsters_in_range)'''
+        mx, my = monster["position"]
+        mh, mw = monster["size"]
+        return (int(mx), int(my), int(mw), int(mh))
+
     def get_attack_range(self, is_left=True):
         '''
         get_attack_range
@@ -932,6 +951,13 @@ class MapleStoryAutoBot:
             x1 = min(self.img_frame.shape[1], self.loc_player[0] + dx)
             y0 = max(0, self.loc_player[1] - dy)
             y1 = min(self.img_frame.shape[0], self.loc_player[1] + dy)
+
+        elif self.wedge_params() is not None:
+            # bounding box of the wedge
+            start, rng, slope, cdy = self.wedge_params()
+            px, py = self.loc_player
+            x0, x1 = (px - rng, px - start) if is_left else (px + start, px + rng)
+            y0, y1 = int(py + cdy - rng / slope), int(py + cdy + rng / slope)
 
         elif self.cfg["bot"]["attack"] == "directional":
             if is_left:
@@ -966,6 +992,17 @@ class MapleStoryAutoBot:
         '''
 
         x0, y0, x1, y1 = self.get_attack_range(is_left=is_left)
+
+        wp = self.wedge_params()
+        if wp is not None:
+            # wedge: the nearest monster inside it (the game targets the nearest)
+            nearest_monster, best = None, float('inf')
+            for monster in self.monsters:
+                state, dist = wedge_test(self.loc_player[0], self.loc_player[1],
+                                         self.monster_box(monster), is_left, *wp)
+                if state == "in" and dist < best:
+                    best, nearest_monster = dist, monster
+            return nearest_monster
 
         nearest_monster = None
         min_distance = float('inf')
@@ -1401,6 +1438,16 @@ class MapleStoryAutoBot:
                 (y1-y0, x1-x0),
                 (0, 0, 255), "Attack Range"
             )
+        elif self.wedge_params() is not None:
+            wp = self.wedge_params()
+            facing_left = self.cmd_move_x == "left"
+            for is_left in (True, False):
+                pts = np.array(wedge_polygon(self.loc_player[0], self.loc_player[1], is_left, *wp), np.int32)
+                cv2.polylines(self.img_frame_debug, [pts], True, (0, 0, 255),
+                              2 if is_left == facing_left else 1)
+            cv2.putText(self.img_frame_debug, "Attack wedge", (int(self.loc_player[0]) - 50,
+                        int(self.loc_player[1] + wp[3] - wp[1] / wp[2]) - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         elif self.cfg["bot"]["attack"] == "directional":
             x0, y0, x1, y1 = self.get_attack_range(is_left=True)
             draw_rectangle(
@@ -1799,6 +1846,11 @@ class MapleStoryAutoBot:
             dx = self.cfg["directional_attack"]["range_x"] + margin
             dy = self.cfg["directional_attack"]["range_y"] + margin
             cooldown = self.cfg["directional_attack"]["cooldown"]
+            wp = self.wedge_params()
+            if wp is not None:
+                # search as far as the wedge reaches
+                dx = int(wp[1]) + margin
+                dy = int(wp[1] / wp[2]) + abs(int(wp[3])) + margin
         else:
             raise RuntimeError(f"Unsupported attack mode: {self.cfg['bot']['attack']}")
         # (clipped to the camera area: the UI band below ui_y_start is not the world)
@@ -1858,6 +1910,32 @@ class MapleStoryAutoBot:
                 self.t_last_attack = time.time()
                 # Set up attack direction
                 self.cmd_move_x = attack_direction
+            elif attack_direction is None:
+                self.back_off_from_dead_zone()
+
+    def back_off_from_dead_zone(self):
+        '''
+        Wedge: a monster too close (inside the dead zone in front) cannot be
+        hit; step away from it instead of attacking the air
+        (directional_attack.dead_zone_action: back_off | ignore)
+        '''
+        wp = self.wedge_params()
+        if wp is None or self.cfg["directional_attack"].get("dead_zone_action", "back_off") != "back_off":
+            return
+        start, rng, slope, cdy = wp
+        px, py = self.loc_player
+        reach_y = self.cfg["directional_attack"]["range_y"]
+        for monster in self.monsters:
+            x, y, w, h = self.monster_box(monster)
+            if y > py + reach_y or y + h < py - reach_y:
+                continue  # another platform
+            for is_left in (True, False):
+                state, _ = wedge_test(px, py, (x, y, w, h), is_left, *wp)
+                if state == "close":
+                    # it is on the is_left side: walk the other way
+                    self.cmd_move_x = "right" if is_left else "left"
+                    self.dead_zone_backoffs = getattr(self, "dead_zone_backoffs", 0) + 1
+                    return
 
     def update_cmd_by_random(self):
         '''

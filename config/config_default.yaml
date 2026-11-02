@@ -49,6 +49,18 @@ directional_attack:
   range_y: 70                # ↕️ Vertical attack range (in pixels)
   cooldown: 0.9              # ⏱️ Time between attacks (in seconds)
   character_turn_delay: 0.02 # 🔄 Delay after turning before attacking (in seconds)
+  # Shape of the reach: "rect" (range_x x range_y in front, upstream) or "wedge"
+  # (MapleStory ranged targeting: starts wedge_start ahead, widens 1 px up and down
+  # every wedge_slope px, ends at wedge_range; game pixels, scaled to the frame)
+  shape: "rect"
+  wedge_preset: "archer"     # web UI helper: archer / arrow_blow / mage / energy_bolt / thief_claw / custom
+  wedge_skill_level: 0       # Eye of Amazon (archer) / Keen Eyes (claw) level for the preset's range
+  wedge_start: 65            # ↔️ dead zone in front (bow/claw 65, spell 50)
+  wedge_range: 300           # ↔️ reach (bow 300 + EoA, claw 200 + KE, spell 300, Energy Bolt 350)
+  wedge_slope: 4             # 📐 the wedge grows 1 px up and down every this many px forward
+  wedge_center_height: 28    # ↕️ centre line above the feet
+  wedge_feet_offset: 27      # ↕️ feet below the bot's player position (measured: maple, party bar)
+  dead_zone_action: "back_off" # monster only inside the dead zone: "back_off" (step away) | "ignore"
 
 aoe_skill:
   # 💥 AoE Skill

@@ -114,6 +114,8 @@ def scale_template(img, s, key=GREEN):
 # (section, key) of config values that are lengths in the reference frame
 _LENGTHS = [
     ("directional_attack", "range_x"), ("directional_attack", "range_y"),
+    ("directional_attack", "wedge_start"), ("directional_attack", "wedge_range"),
+    ("directional_attack", "wedge_center_height"), ("directional_attack", "wedge_feet_offset"),
     ("aoe_skill", "range_x"), ("aoe_skill", "range_y"),
     ("nametag", "split_width"),
     ("character", "width"), ("character", "height"),
