@@ -35,6 +35,8 @@ wingpu:
   debug_dir: ""             # default <dir>/debug: latest.png, latest_guest.jpg, status.json
   debug_interval: 2         # seconds between debug outputs (latest.jpg, status.json)
   debug_png: False          # also write latest.png (full-size PNG, ~10x the CPU of the JPEG)
+  mjpeg_fps: 10             # web UI live view (./mjpeg) frames per second, only while someone watches
+  mjpeg_scale: 1.0          # live view size (0.5 - 1.0 of the game frame)
   http_port: 0              # >0: status / debug.png / mjpeg / run / pause on this port
 
   # 🌐 Only outside the script container (network API of the wingpu manager)

@@ -81,6 +81,13 @@ class WingpuControl:
         self.running = bool(wcfg.get("start_running", True))
         self.quit = False
         self.restart = False # re-exec the bot process (settings applied), see main()
+        self.mjpeg_cond = threading.Condition()
+        self.mjpeg_clients = 0
+        self.mjpeg_thread = None
+        self.mjpeg_seq = 0
+        self.mjpeg_frame = None
+        self.mjpeg_encoded = 0
+        self.mjpeg_cpu = 0.0
         self.pending_restart = False # settings saved but not applied yet
         self.webui = None
         self.control_mtime = None
@@ -257,6 +264,8 @@ class WingpuControl:
             "kb_enabled": kb.is_enable if kb else None,
             "kb_hold": getattr(kb, "is_hold", False) if kb else None,
             "features": self.features(),
+            "mjpeg": {"clients": self.mjpeg_clients, "frames": self.mjpeg_encoded,
+                      "encode_ms": round(1000 * self.mjpeg_cpu / max(1, self.mjpeg_encoded), 1)},
             "buffs": self.buff_status(),
             "player_source": getattr(bot, "player_source", None),
             "decision": (bot.decisions[-1] if getattr(bot, "decisions", None) else None),
@@ -471,18 +480,22 @@ class WingpuControl:
                     self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
                     self.send_header("Cache-Control", "no-store")
                     self.end_headers()
-                    last = None
+                    control.mjpeg_join()
+                    last = 0
                     try:
                         while not control.quit:
-                            jpg = control.debug_jpeg
-                            if jpg is not None and jpg is not last:
-                                last = jpg
-                                self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n"
-                                                 b"Content-Length: " + str(len(jpg)).encode() +
-                                                 b"\r\n\r\n" + jpg + b"\r\n")
-                            time.sleep(0.2)
-                    except (BrokenPipeError, ConnectionResetError):
+                            seq, jpg = control.mjpeg_wait(last, timeout=2.0)
+                            if jpg is None or seq == last:
+                                continue
+                            last = seq
+                            self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n"
+                                             b"Content-Length: " + str(len(jpg)).encode() +
+                                             b"\r\n\r\n" + jpg + b"\r\n")
+                            self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError, OSError):
                         pass
+                    finally:
+                        control.mjpeg_leave()
                 else:
                     self._send(404, "text/plain", b"not found")
 
@@ -538,7 +551,64 @@ class WingpuControl:
         self.http.daemon_threads = True
         threading.Thread(target=self.http.serve_forever, daemon=True).start()
 
+    ###########
+    ### MJPEG ###
+    ###########
+    # One producer thread encodes the bot's latest annotated frame at
+    # wingpu.mjpeg_fps (scaled by wingpu.mjpeg_scale) while at least one /mjpeg
+    # client is connected; clients wait on a condition for the next frame.
+    # No client -> no thread, no encoding. (Before: frames only changed with the
+    # debug files, every debug_interval = 1 s on maple.)
+    def mjpeg_join(self):
+        with self.mjpeg_cond:
+            self.mjpeg_clients += 1
+            if self.mjpeg_thread is None or not self.mjpeg_thread.is_alive():
+                self.mjpeg_thread = threading.Thread(target=self.mjpeg_produce, daemon=True)
+                self.mjpeg_thread.start()
+
+    def mjpeg_leave(self):
+        with self.mjpeg_cond:
+            self.mjpeg_clients = max(0, self.mjpeg_clients - 1)
+
+    def mjpeg_wait(self, last, timeout=2.0):
+        with self.mjpeg_cond:
+            self.mjpeg_cond.wait_for(lambda: self.mjpeg_seq != last or self.quit, timeout=timeout)
+            return self.mjpeg_seq, self.mjpeg_frame
+
+    def mjpeg_produce(self):
+        last_img = None
+        while not self.quit:
+            with self.mjpeg_cond:
+                if self.mjpeg_clients <= 0:
+                    return
+            wcfg = self.cfg.get("wingpu", {}) or {}
+            fps = max(1.0, min(30.0, float(wcfg.get("mjpeg_fps", 10))))
+            scale = max(0.25, min(1.0, float(wcfg.get("mjpeg_scale", 1.0))))
+            t0 = time.time()
+            img = getattr(self.bot, "img_frame_debug_done", None)
+            if img is None:
+                img = self.bot.img_frame_debug
+            if img is not None and img is not last_img:
+                last_img = img
+                if scale < 0.999:
+                    img = cv2.resize(img, (int(img.shape[1] * scale), int(img.shape[0] * scale)),
+                                     interpolation=cv2.INTER_AREA)
+                c0 = time.process_time()
+                ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                self.mjpeg_cpu += time.process_time() - c0
+                self.mjpeg_encoded += 1
+                if ok:
+                    with self.mjpeg_cond:
+                        self.mjpeg_seq += 1
+                        self.mjpeg_frame = buf.tobytes()
+                        self.mjpeg_cond.notify_all()
+            dt = 1.0 / fps - (time.time() - t0)
+            if dt > 0:
+                time.sleep(dt)
+
     def stop(self):
         self.quit = True
+        with self.mjpeg_cond:
+            self.mjpeg_cond.notify_all()
         if self.http is not None:
             self.http.shutdown()

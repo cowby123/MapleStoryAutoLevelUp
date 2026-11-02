@@ -78,8 +78,8 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
     <h2>畫面</h2>
     <img id="live" class="live" alt="bot 偵測畫面">
     <div class="row" style="margin-top:8px">
-      <label class="row"><input type="checkbox" id="mjpeg"> 串流（MJPEG）</label>
-      <span class="msg">不勾 = 每秒更新一次圖片</span>
+      <label class="row"><input type="checkbox" id="mjpeg" checked> 即時串流</label>
+      <span class="msg">不勾 = 每秒更新一次圖片；頁面看不到時自動停（不花 CPU）</span>
     </div>
   </section>
 
@@ -245,6 +245,8 @@ const LABELS = {
   'system.fps_limit_window_capturor': ['擷取畫面每秒幾張', ''],
   'wingpu.debug_interval': ['狀態 / 偵測圖更新間隔（秒）', ''],
   'wingpu.redetect_interval': ['重找遊戲視窗間隔（秒）', ''],
+  'wingpu.mjpeg_fps': ['即時串流每秒幾張', '有人在看時才編碼；10 張約 0.06 核、約 2.5 MB/s（大小 0.5：0.02 核、0.8 MB/s）'],
+  'wingpu.mjpeg_scale': ['即時串流大小', '0.5–1（原尺寸），小一點比較省'],
   'player_detect.mode': ['玩家偵測', 'party_bar（預設）：只用隊伍紅條（要組隊）；nametag：只用名牌；auto：先紅條、找不到用名牌。名牌 / 自動要先用「截取名牌」截一張'],
   'player_detect.nametag_thres': ['名牌比對門檻', '0.05–0.6，越小越嚴（實測本人 0.00–0.20、別的 0.45 以上）'],
   'monster_detect.search': ['找怪範圍', 'roi：玩家周圍的框（下面四個值）；full：整個畫面（慢、誤判多）；attack：攻擊範圍＋外擴（上游）'],
@@ -296,7 +298,7 @@ const GROUPS = [
   ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
   ['安全與其他', ['route.jump_runup', 'route.jump_stuck_s', 'route.jump_runup_back_px', 'edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'system.fps_limit_main']],
   ['其他功能開關（預設都關）', ['rune_find.enable', 'rune_find.near_rune_duration', 'watchdog.last_attack_enable', 'watchdog.last_attack_timeout', 'watchdog.last_attack_timeout_action', 'scheduled_channel_switching.enable', 'scheduled_channel_switching.interval_seconds', 'channel_change.enable', 'wingpu.ensure_party_on_start']],
-  ['其他時間設定', ['buff_skill.action_cooldown', 'aoe_skill.cooldown', 'teleport.cooldown', 'patrol.patrol_attack_interval', 'player_detect.nametag_local_timeout', 'system.fps_limit_window_capturor', 'wingpu.debug_interval', 'wingpu.redetect_interval']],
+  ['其他時間設定', ['buff_skill.action_cooldown', 'aoe_skill.cooldown', 'teleport.cooldown', 'patrol.patrol_attack_interval', 'player_detect.nametag_local_timeout', 'system.fps_limit_window_capturor', 'wingpu.debug_interval', 'wingpu.redetect_interval', 'wingpu.mjpeg_fps', 'wingpu.mjpeg_scale']],
 ];
 let CFG = null, LIVE = false;
 // sub-settings shown only while their feature is on (form values)
@@ -451,12 +453,14 @@ let imgTimer = null;
 function startImage() {
   clearInterval(imgTimer);
   const img = $('live');
-  if ($('mjpeg').checked) { img.src = './mjpeg'; return; }
+  if (document.visibilityState === 'hidden') { img.removeAttribute('src'); return; }  // stops the stream
+  if ($('mjpeg').checked) { img.src = './mjpeg?t=' + Date.now(); return; }
   const load = () => { img.src = './debug.jpg?t=' + Date.now(); };
   load();
   imgTimer = setInterval(load, 1000);
 }
 $('mjpeg').onchange = startImage;
+document.addEventListener('visibilitychange', startImage);
 
 // ---------- live switch ----------
 $('live-sw').onchange = async e => {
@@ -751,7 +755,10 @@ async function ntDelete() {
 loadConfig();
 poll();
 setInterval(poll, 1000);
-startImage();
+// first a still image; the stream starts after the page has loaded (an endless
+// MJPEG response would otherwise keep the page 'loading' forever)
+$('live').src = './debug.jpg?t=' + Date.now();
+window.addEventListener('load', () => setTimeout(startImage, 300));
 </script>
 </body>
 </html>

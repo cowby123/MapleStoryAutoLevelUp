@@ -118,6 +118,8 @@ FIELDS = [
     ("system", "fps_limit_window_capturor", "int", (1, 30)),
     ("wingpu", "debug_interval", "num", (0.5, 60)),
     ("wingpu", "redetect_interval", "num", (1, 600)),
+    ("wingpu", "mjpeg_fps", "int", (1, 30)),
+    ("wingpu", "mjpeg_scale", "num", (0.5, 1)),
     # optional behaviours (switches)
     ("rune_find", "enable", "bool", None),
     ("watchdog", "last_attack_enable", "bool", None),
