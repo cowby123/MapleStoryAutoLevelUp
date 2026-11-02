@@ -1851,6 +1851,73 @@ class MapleStoryAutoBot:
         if self.cfg["key"]["teleport"] == "" and self.cmd_action == "teleport":
             self.cmd_action = "jump"
 
+        # jumping on the spot into a ledge: back off and take a run-up
+        self.jump_runup()
+
+    def jump_runup(self, now=None):
+        '''
+        route.jump_runup: the route says "jump right/left" at a ledge, but the
+        character stands against the wall and jumps straight up again and
+        again (no speed, it cannot get onto the ledge; maple 2026-11-03 04:43:
+        22 of 22 jumps at minimap x 182 did not move). When jump + direction
+        has not moved the minimap x for jump_stuck_s: walk back
+        jump_runup_back_px, walk at the ledge again without jumping, and jump
+        while still moving one pixel before the wall.
+        '''
+        rc = self.cfg["route"]
+        if not rc.get("jump_runup", False):
+            return
+        now = time.time() if now is None else now
+        x = int(self.loc_player_global[0])
+        st = self.runup_state = getattr(self, "runup_state", None) or {"hist": collections.deque()}
+        phase = st.get("phase")
+        if phase == "back":
+            d = st["dir"]
+            far_enough = (st["wall"] - x >= st["back_px"]) if d == "right" else (x - st["wall"] >= st["back_px"])
+            if far_enough or now > st["until"]:
+                st.update(phase="approach", until=now + float(rc.get("jump_runup_approach_s", 1.2)))
+            else:
+                self.cmd_move_x = "left" if d == "right" else "right"
+                self.cmd_move_y, self.cmd_action = "none", "none"
+                self.why("jump_runup", phase="back", wall=st["wall"], x=x)
+                return
+        if st.get("phase") == "approach":
+            d = st["dir"]
+            close = (x >= st["wall"] - 1) if d == "right" else (x <= st["wall"] + 1)
+            if close or now > st["until"]:
+                # jump now, while moving, just before the wall
+                self.cmd_move_x, self.cmd_action = d, "jump"
+                self.why("jump_runup", phase="jump", wall=st["wall"], x=x)
+                st["phase"] = None
+                st["hist"].clear()
+                st["t_done"] = now
+            else:
+                self.cmd_move_x, self.cmd_move_y, self.cmd_action = d, "none", "none"
+                self.why("jump_runup", phase="approach", wall=st["wall"], x=x)
+            return
+        hist = st["hist"]
+        stuck_s = float(rc.get("jump_stuck_s", 1.2))
+        if self.cmd_action == "jump" and self.cmd_move_x in ("left", "right"):
+            hist.append((now, x, self.cmd_move_x))
+        else:
+            hist.clear()
+            return
+        while hist and now - hist[0][0] > stuck_s:
+            hist.popleft()
+        if len(hist) >= 3 and now - hist[0][0] >= 0.8 * stuck_s and \
+                len({d for _, _, d in hist}) == 1 and \
+                max(h[1] for h in hist) - min(h[1] for h in hist) <= 1 and \
+                now - st.get("t_done", 0) > stuck_s:
+            d = hist[-1][2]
+            st.update(phase="back", dir=d, wall=x, back_px=int(rc.get("jump_runup_back_px", 4)),
+                      until=now + float(rc.get("jump_runup_back_s", 0.8)))
+            st["n"] = st.get("n", 0) + 1
+            hist.clear()
+            logger.info(f"[jump_runup] jumping {d} on the spot at minimap x {x}: back off and take a run-up")
+            self.cmd_move_x = "left" if d == "right" else "right"
+            self.cmd_move_y, self.cmd_action = "none", "none"
+            self.why("jump_runup", phase="start", wall=x, dir=d)
+
     def update_cmd_by_mob_detection(self):
         # Get monster search box
         margin = self.cfg["monster_detect"]["search_box_margin"]
@@ -2023,6 +2090,13 @@ class MapleStoryAutoBot:
         kb = self.kb
         try:
             ph = self.hunt_cycle.phase if self.hunt_cycle is not None else None
+            # keyboard events actually sent (or, in dry run, that would be) since the last frame
+            keys = []
+            if is_wingpu():
+                from src.input.WingpuKeyboard import get_keyboard
+                last = getattr(self, "_t_last_record", 0.0)
+                keys = [txt for t, txt in list(get_keyboard().history) if t > last][-12:]
+            self._t_last_record = time.time()
             self.decisions.append({
                 "t": round(time.time(), 3),
                 "ret": ret,
@@ -2033,6 +2107,7 @@ class MapleStoryAutoBot:
                 "on_ladder": self.is_on_ladder,
                 "mobs": [list(self.monster_box(m)) for m in (self.monsters or [])][:6],
                 "phase": ph,
+                "keys": keys,
                 "why": self.dec.get("why", []),
             })
         except Exception as e: # instrumentation must never break the loop

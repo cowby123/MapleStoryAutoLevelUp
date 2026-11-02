@@ -269,6 +269,9 @@ const LABELS = {
   'directional_attack.wedge_slope': ['擴張斜率', '每往前幾像素，上下各多 1 像素（預設 4）'],
   'directional_attack.wedge_center_height': ['中心高度', '扇形中線在腳上方幾像素（預設 28）'],
   'directional_attack.wedge_feet_offset': ['腳的位置', 'bot 的玩家點往下幾像素是腳（實測 27）'],
+  'route.jump_runup': ['跳不上平台時退後助跑', '路線叫你往右 / 左跳、但一直在原地跳（貼著牆、沒有速度）：先往回走幾格，再跑過去、在牆前起跳'],
+  'route.jump_stuck_s': ['原地跳幾秒算卡住（秒）', ''],
+  'route.jump_runup_back_px': ['往回走幾格（小地圖像素）', ''],
   'directional_attack.stand_while_target': ['有怪在射程內時站著打', '打開：怪在射程內就停下來打，不跟著路線走來走去；關（預設）：原本的做法（每次攻擊轉向、攻擊間照路線走）'],
   'directional_attack.target_hold_s': ['怪不見後再站幾秒', '偵測偶爾漏一兩張時不要馬上走開'],
   'directional_attack.target_commit_s': ['同一邊至少打幾秒', '兩邊都有怪時，不要每張畫面換邊'],
@@ -291,7 +294,7 @@ const GROUPS = [
   ['喝水', ['health_monitor.enable', 'health_monitor.add_hp_percent', 'health_monitor.add_mp_percent', 'health_monitor.add_hp_cooldown', 'health_monitor.add_mp_cooldown', 'health_monitor.fps_limit', 'health_monitor.force_heal', 'health_monitor.return_home_if_no_potion', 'health_monitor.return_home_watch_dog_timeout']],
   ['攻擊與偵測', ['directional_attack.stand_while_target', 'directional_attack.target_hold_s', 'directional_attack.target_commit_s', 'directional_attack.shape', 'directional_attack.wedge_preset', 'directional_attack.wedge_skill_level', 'directional_attack.wedge_start', 'directional_attack.wedge_range', 'directional_attack.wedge_slope', 'directional_attack.wedge_center_height', 'directional_attack.wedge_feet_offset', 'directional_attack.dead_zone_action', 'directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown', 'aoe_skill.range_x', 'aoe_skill.range_y', 'monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search_box_margin', 'monster_detect.search', 'monster_detect.roi_left', 'monster_detect.roi_right', 'monster_detect.roi_up', 'monster_detect.roi_down', 'monster_detect.interval_frames']],
   ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
-  ['安全與其他', ['edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'system.fps_limit_main']],
+  ['安全與其他', ['route.jump_runup', 'route.jump_stuck_s', 'route.jump_runup_back_px', 'edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'system.fps_limit_main']],
   ['其他功能開關（預設都關）', ['rune_find.enable', 'rune_find.near_rune_duration', 'watchdog.last_attack_enable', 'watchdog.last_attack_timeout', 'watchdog.last_attack_timeout_action', 'scheduled_channel_switching.enable', 'scheduled_channel_switching.interval_seconds', 'channel_change.enable', 'wingpu.ensure_party_on_start']],
   ['其他時間設定', ['buff_skill.action_cooldown', 'aoe_skill.cooldown', 'teleport.cooldown', 'patrol.patrol_attack_interval', 'player_detect.nametag_local_timeout', 'system.fps_limit_window_capturor', 'wingpu.debug_interval', 'wingpu.redetect_interval']],
 ];
@@ -334,6 +337,8 @@ const DEPS = {
   'directional_attack.dead_zone_action': v => v['directional_attack.shape'] === 'wedge',
   'directional_attack.range_x': v => v['directional_attack.shape'] !== 'wedge',
   'directional_attack.target_hold_s': v => v['directional_attack.stand_while_target'],
+  'route.jump_stuck_s': v => v['route.jump_runup'],
+  'route.jump_runup_back_px': v => v['route.jump_runup'],
   'directional_attack.target_commit_s': v => v['directional_attack.stand_while_target'],
 };
 // wedge presets (src/utils/attack_shape.py)

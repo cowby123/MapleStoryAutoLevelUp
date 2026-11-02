@@ -208,6 +208,11 @@ route:
   # The character follows a pre-defined route image (route*.png) using color-coded commands.
   search_range: 10            # 🔍 Radius (in pixels) to search for the nearest route color around the player
   jump_down_cooldown: 3.0     # ⏱️ Cooldown (in seconds) for 'jump down' action to prevent continuous descent
+  jump_runup: False           # ✅ jumping on the spot into a ledge (route says jump, minimap x does not move): back off, run up, jump
+  jump_stuck_s: 1.2           # ⏱️ jump + direction without moving this long = stuck at a ledge
+  jump_runup_back_px: 4       # ↔️ minimap pixels to walk back for the run-up
+  jump_runup_back_s: 0.8      # ⏱️ at most this long walking back
+  jump_runup_approach_s: 1.2  # ⏱️ at most this long walking at the ledge again before jumping
 
   # 🎨 Color-coded(RGB) actions for route navigation
   # "<left-right command, up-down command, action>"
