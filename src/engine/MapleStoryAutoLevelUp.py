@@ -12,6 +12,7 @@ import logging
 import os
 import datetime
 import threading
+import collections
 
 # Library import
 import numpy as np
@@ -143,6 +144,9 @@ class MapleStoryAutoBot:
         # Hunt / rest cycles (hunt_cycle)
         self.hunt_cycle = None
         self.safe_plan = {} # walking to the safe spot: target, position, command
+        # Decision log (instrumentation): why each frame's command is what it is
+        self.dec = {"why": []}
+        self.decisions = collections.deque(maxlen=200)
         self.det_counts = {"frames": 0, "minimap": 0, "player_dot": 0, "player": 0,
                            "player_party_bar": 0, "player_nametag": 0,
                            "monsters": 0, "lost_paused": 0}
@@ -1820,12 +1824,22 @@ class MapleStoryAutoBot:
             self.cmd_move_x, self.cmd_move_y, self.cmd_action = color_code["command"].split()
         elif color_code_up_down:
             self.cmd_move_x, self.cmd_move_y, self.cmd_action = color_code_up_down["command"].split()
+        self.why("route",
+                 colour=(list(color_code["color"]) if color_code else None),
+                 colour_cmd=(color_code["command"] if color_code else None),
+                 colour_px=(list(color_code["pixel"]) if color_code else None),
+                 colour_dist=(color_code["distance"] if color_code else None),
+                 updown_cmd=(color_code_up_down["command"] if color_code_up_down else None),
+                 updown_dist=(color_code_up_down["distance"] if color_code_up_down else None),
+                 cmd=f"{self.cmd_move_x} {self.cmd_move_y} {self.cmd_action}",
+                 kept_previous=not (color_code or color_code_up_down))
 
         # teleport away from edge to avoid falling off cliff
         if self.is_near_edge() and \
             time.time() - self.t_last_teleport > self.cfg["teleport"]["cooldown"]:
             self.cmd_action = "teleport"
             self.t_last_teleport = time.time() # update timer
+            self.why("edge")
 
         # Use teleport while walking
         if self.cfg['teleport']['is_use_teleport_to_walk'] and \
@@ -1912,8 +1926,15 @@ class MapleStoryAutoBot:
                 self.t_last_attack = time.time()
                 # Set up attack direction
                 self.cmd_move_x = attack_direction
+                tgt = monster_left if attack_direction == "left" else monster_right
+                self.why("attack_target", dir=attack_direction,
+                         target=list(self.monster_box(tgt)) if tgt else None,
+                         left=list(self.monster_box(monster_left)) if monster_left else None,
+                         right=list(self.monster_box(monster_right)) if monster_right else None)
             elif attack_direction is None:
                 self.back_off_from_dead_zone()
+            else:
+                self.why("attack_cooldown", dir=attack_direction)
 
     def back_off_from_dead_zone(self):
         '''
@@ -1922,7 +1943,7 @@ class MapleStoryAutoBot:
         (directional_attack.dead_zone_action: back_off | ignore)
         '''
         wp = self.wedge_params()
-        if wp is None or self.cfg["directional_attack"].get("dead_zone_action", "back_off") != "back_off":
+        if wp is None or self.cfg["directional_attack"].get("dead_zone_action", "ignore") != "back_off":
             return
         start, rng, slope, cdy = wp
         px, py = self.loc_player
@@ -1937,7 +1958,37 @@ class MapleStoryAutoBot:
                     # it is on the is_left side: walk the other way
                     self.cmd_move_x = "right" if is_left else "left"
                     self.dead_zone_backoffs = getattr(self, "dead_zone_backoffs", 0) + 1
+                    self.why("dead_zone_back_off", to=self.cmd_move_x, monster=[x, y, w, h])
                     return
+
+    def why(self, kind, **info):
+        '''
+        Instrumentation: note why this frame's command is what it is
+        '''
+        info["kind"] = kind
+        self.dec.setdefault("why", []).append(info)
+
+    def record_decision(self, ret):
+        '''
+        One entry per frame in the decision ring buffer (./decisions)
+        '''
+        kb = self.kb
+        try:
+            ph = self.hunt_cycle.phase if self.hunt_cycle is not None else None
+            self.decisions.append({
+                "t": round(time.time(), 3),
+                "ret": ret,
+                "kb": f"{kb.cmd_left_right} {kb.cmd_up_down} {kb.cmd_action}" if kb else None,
+                "player": [int(v) for v in self.loc_player],
+                "player_source": self.player_source,
+                "global": [int(v) for v in self.loc_player_global],
+                "on_ladder": self.is_on_ladder,
+                "mobs": [list(self.monster_box(m)) for m in (self.monsters or [])][:6],
+                "phase": ph,
+                "why": self.dec.get("why", []),
+            })
+        except Exception as e: # instrumentation must never break the loop
+            logger.debug(f"[record_decision] {e}")
 
     def update_cmd_by_random(self):
         '''
@@ -1946,6 +1997,7 @@ class MapleStoryAutoBot:
         self.cmd_move_x = random.choice(["left", "right", "none"])
         self.cmd_move_y = random.choice(["down", "none"])
         self.cmd_action = random.choice(["jump", "none"])
+        self.why("stuck_random", cmd=f"{self.cmd_move_x} {self.cmd_move_y} {self.cmd_action}")
         logger.warning("[update_cmd_by_random]"\
                     f"{self.cmd_move_x} {self.cmd_move_y} {self.cmd_action}")
 
@@ -2370,6 +2422,7 @@ class MapleStoryAutoBot:
         # Minimap or player not found for lost_timeout seconds: hold every key,
         # send nothing, resume when both are back (no blind watchdog actions).
         if self.check_detection_lost():
+            self.why("lost_pause", reason=list(self.lost_reason))
             self.is_first_frame = False
             if self.is_show_debug_window:
                 cv2.putText(self.img_frame_debug,
@@ -2385,6 +2438,7 @@ class MapleStoryAutoBot:
         ########################
         # (after the safety pause: that one applies in every phase)
         if self.run_hunt_cycle():
+            self.why("cycle", phase=self.hunt_cycle.phase, plan=dict(self.safe_plan))
             self.is_first_frame = False
             if self.is_show_debug_window:
                 hc = self.hunt_cycle.status()
@@ -2523,7 +2577,9 @@ class MapleStoryAutoBot:
             # Process one game window frame
             self.is_frame_done = False
             try:
+                self.dec = {"why": []}
                 ret = self.run_once()
+                self.record_decision(ret)
             except Exception as e: # a detector bug must not leave keys held or kill the loop
                 ret = -1
                 logger.error(f"[loop] run_once failed: {type(e).__name__}: {e}")

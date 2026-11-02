@@ -60,7 +60,7 @@ directional_attack:
   wedge_slope: 4             # 📐 the wedge grows 1 px up and down every this many px forward
   wedge_center_height: 28    # ↕️ centre line above the feet
   wedge_feet_offset: 27      # ↕️ feet below the bot's player position (measured: maple, party bar)
-  dead_zone_action: "back_off" # monster only inside the dead zone: "back_off" (step away) | "ignore"
+  dead_zone_action: "ignore"   # monster only inside the dead zone: "ignore" (not a target, just follow the route; default) | "back_off" (step away)
 
 aoe_skill:
   # 💥 AoE Skill

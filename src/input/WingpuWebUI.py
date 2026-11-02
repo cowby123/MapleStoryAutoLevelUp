@@ -73,7 +73,7 @@ FIELDS = [
     ("directional_attack", "wedge_slope", "num", (1, 20)),
     ("directional_attack", "wedge_center_height", "int", (0, 100)),
     ("directional_attack", "wedge_feet_offset", "int", (-50, 100)),
-    ("directional_attack", "dead_zone_action", "choice", ["back_off", "ignore"]),
+    ("directional_attack", "dead_zone_action", "choice", ["ignore", "back_off"]),
     ("aoe_skill", "range_x", "int", (10, 1500)),
     ("aoe_skill", "range_y", "int", (10, 800)),
     ("monster_detect", "mode", "choice", ["contour_only", "color", "grayscale", "template_free"]),

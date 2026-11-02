@@ -259,6 +259,7 @@ class WingpuControl:
             "features": self.features(),
             "buffs": self.buff_status(),
             "player_source": getattr(bot, "player_source", None),
+            "decision": (bot.decisions[-1] if getattr(bot, "decisions", None) else None),
             "hunt_cycle": dict(bot.hunt_cycle.status(), safe_spot=bot.safe_spot(), plan=bot.safe_plan,
                                resting=getattr(kb, "is_resting", False))
                           if getattr(bot, "hunt_cycle", None) is not None else None,
@@ -434,6 +435,11 @@ class WingpuControl:
                     self._file("latest_guest.jpg", "image/jpeg")
                 elif path == "/api/config":
                     self._json(control.webui.config())
+                elif path in ("/decisions", "/api/decisions"):
+                    q = urlparse(self.path).query
+                    n = dict(kv.split("=", 1) for kv in q.split("&") if "=" in kv).get("n", "200")
+                    n = int(n) if n.isdigit() else 200
+                    self._json(list(getattr(control.bot, "decisions", []))[-n:])
                 elif path == "/api/routes":
                     self._json(control.webui.routes())
                 elif path == "/api/route_img":

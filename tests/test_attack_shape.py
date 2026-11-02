@@ -93,7 +93,12 @@ def test_nearest_in_wedge():
     # only the dead-zone monster: no attack, step away from it
     bot.monsters = [close]
     assert bot.get_nearest_monster(False) is None and bot.get_nearest_monster(True) is None
+    # default: ignore (not a target, no movement because of it)
+    assert bot.cfg["directional_attack"]["dead_zone_action"] == "ignore"
     bot.cmd_move_x = "none"
+    bot.back_off_from_dead_zone()
+    assert bot.cmd_move_x == "none"
+    bot.cfg["directional_attack"]["dead_zone_action"] = "back_off"   # the option
     bot.back_off_from_dead_zone()
     assert bot.cmd_move_x == "left", bot.cmd_move_x
     bot.cfg["directional_attack"]["dead_zone_action"] = "ignore"
@@ -126,6 +131,7 @@ def test_fixtures_rect_vs_wedge():
             d = bot.get_attack_direction(left, right)
             bot.cmd_move_x = "none"
             if d is None:
+                bot.cfg["directional_attack"]["dead_zone_action"] = "back_off"   # count what the option would do
                 bot.back_off_from_dead_zone()
             out[name] = (len(bot.monsters), d, bot.cmd_move_x if d is None else None)
         rows.append((os.path.basename(f)[:24], out))
