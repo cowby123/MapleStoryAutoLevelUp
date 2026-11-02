@@ -43,6 +43,12 @@ legend{font-weight:600;padding:0 4px}
 dialog{border:none;border-radius:12px;max-width:420px;width:calc(100% - 32px);background:var(--card);color:var(--fg)}
 dialog::backdrop{background:rgba(0,0,0,.5)}
 .msg{font-size:13px;color:var(--mut)}
+.pal{display:flex;flex-wrap:wrap;gap:6px}
+.pal button{display:flex;align-items:center;gap:6px;padding:6px 8px;min-height:34px;font-size:13px}
+.pal button.sel{outline:3px solid var(--acc)}
+.sw{display:inline-block;width:16px;height:16px;border:1px solid #0006;border-radius:3px}
+#rp-cv{image-rendering:pixelated;touch-action:none;cursor:crosshair;display:block}
+.cycle td:first-child{width:35%}
 .buffrow{display:grid;grid-template-columns:1.2fr .8fr .8fr auto auto auto;gap:6px;align-items:center;margin:4px 0}
 .buffrow label{font-size:13px;white-space:nowrap}
 @media (max-width:600px){.buffrow{grid-template-columns:1fr 1fr 1fr}}
@@ -58,7 +64,8 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
   <span id="b-run" class="badge">讀取中…</span>
   <span id="b-lost" class="badge" hidden></span>
   <span id="b-input" class="badge">模擬（不送輸入）</span>
-  <span id="b-pending" class="badge b-warn" hidden>設定已儲存，重新啟動後生效</span>
+  <span id="b-pending" class="badge b-warn" hidden>有設定要重新啟動後才生效</span>
+  <span id="b-cycle" class="badge" hidden></span>
 </header>
 <main>
   <section>
@@ -99,6 +106,39 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
   <section class="wide">
     <h2>Buff <span class="msg" id="buff-note"></span></h2>
     <table id="buffst"></table>
+  </section>
+
+  <section class="wide">
+    <h2>練功 / 休息循環</h2>
+    <table id="cyclest" class="cycle"></table>
+  </section>
+
+  <section class="wide">
+    <h2>安全點與安全路線（目前地圖：<span id="rp-map"></span>）</h2>
+    <p class="msg">「休息方式＝走到安全點」時用。點小地圖設安全點；要爬繩子 / 梯子才到得了的安全點，請畫一條「安全路線」：
+      跟練功路線同一套顏色（下面的圖例），從練功區畫到安全點。沒有安全路線時，只有安全點跟角色在同一層才會走過去，否則原地休息。
+      休息完 bot 會自己回到練功路線。</p>
+    <div class="row">
+      <label class="row"><input type="radio" name="rptool" value="spot" checked> 設安全點</label>
+      <label class="row"><input type="radio" name="rptool" value="paint"> 畫筆</label>
+      <label class="row"><input type="radio" name="rptool" value="erase"> 橡皮擦</label>
+      <label class="row">筆寬 <select id="rp-brush" style="width:auto"><option>1</option><option>2</option><option>3</option></select></label>
+      <label class="row">放大 <select id="rp-zoom" style="width:auto"><option>3</option><option selected>4</option><option>6</option><option>8</option></select></label>
+      <label class="row"><input type="checkbox" id="rp-hunt" checked> 顯示練功路線</label>
+      <select id="rp-route" style="width:auto"></select>
+    </div>
+    <div class="pal" id="rp-pal" style="margin:8px 0"></div>
+    <div style="overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:6px"><canvas id="rp-cv"></canvas></div>
+    <div class="row" style="margin-top:8px">
+      <button class="pri" onclick="rpSave()">儲存安全路線</button>
+      <button onclick="rpLoad()">重新載入</button>
+      <button onclick="rpClear()">清空畫布</button>
+      <button class="danger" onclick="rpDelete()">刪除安全路線</button>
+      <button class="danger" onclick="rpSpotClear()">清除安全點</button>
+    </div>
+    <div class="msg" id="rp-msg"></div>
+    <p class="msg">畫繩子 / 梯子：地面走到繩子正下方（左 / 右），繩子底下 1–3 格塗「跳上繩子」（摸不到的繩子要按住上＋跳；摸得到的直接塗「往上爬」也可以），
+      整條繩子塗「往上爬」（灰色），到頂端的平台接「左」或「右」，安全點那格塗「停」。紫色十字＝安全點，藍點＝角色現在的位置。</p>
   </section>
 
   <section class="wide">
@@ -169,6 +209,27 @@ const LABELS = {
   'key.party': ['組隊視窗鍵', ''],
   'key.return_home': ['回城卷鍵', ''],
   'buff_skill.items': ['Buff 技能', '每列一個 Buff：名稱（可空）、按鍵、冷卻秒數、啟用、啟動時先放'],
+  'hunt_cycle.enable': ['啟用練功 / 休息循環', ''],
+  'hunt_cycle.hunt_minutes': ['每輪練功（分鐘）', '最少～最多，每輪隨機'],
+  'hunt_cycle.rest_minutes': ['每輪休息（分鐘）', '最少～最多，每輪隨機'],
+  'hunt_cycle.rest_action': ['休息方式', 'stop：原地停手（還會喝水）；safe_spot：走到安全點再停；go_home：按回城後結束這次'],
+  'hunt_cycle.safe_spot_timeout': ['走到安全點最多幾秒', '超過就原地休息'],
+  'hunt_cycle.session_hours': ['總共玩幾小時後結束', '0 = 不限'],
+  'hunt_cycle.window_start': ['每天開始時間', 'HH:MM，空白 = 不限'],
+  'hunt_cycle.window_end': ['每天結束時間', 'HH:MM，可跨午夜，例如 22:00～02:00'],
+  'watchdog.last_attack_timeout': ['多久沒攻擊算卡住（秒）', '只在練功時算；dry run 不會換頻道 / 回城'],
+  'scheduled_channel_switching.interval_seconds': ['定時換頻道間隔（秒）', '定時換頻道要另外啟用'],
+  'health_monitor.return_home_watch_dog_timeout': ['沒藥時多久回城（秒）', '「沒藥回城」啟用時才用'],
+  'health_monitor.fps_limit': ['血量檢查每秒幾次', ''],
+  'buff_skill.action_cooldown': ['攻擊後多久才放 Buff（秒）', ''],
+  'aoe_skill.cooldown': ['範圍技間隔（秒）', ''],
+  'teleport.cooldown': ['瞬移間隔（秒）', ''],
+  'rune_find.near_rune_duration': ['在符文旁最多試幾秒', ''],
+  'patrol.patrol_attack_interval': ['巡邏模式攻擊間隔（秒）', ''],
+  'player_detect.nametag_local_timeout': ['名牌附近找的時間（秒）', '這段時間內只在上次位置附近找'],
+  'system.fps_limit_window_capturor': ['擷取畫面每秒幾張', ''],
+  'wingpu.debug_interval': ['狀態 / 偵測圖更新間隔（秒）', ''],
+  'wingpu.redetect_interval': ['重找遊戲視窗間隔（秒）', ''],
   'player_detect.mode': ['玩家偵測', 'auto：先找隊伍紅條，找不到用名牌；party_bar：只用隊伍紅條（要組隊）；nametag：只用名牌（要先截取名牌）'],
   'player_detect.nametag_thres': ['名牌比對門檻', '0.05–0.6，越小越嚴（實測本人 0.00–0.20、別的 0.45 以上）'],
   'monster_detect.search': ['找怪範圍', 'roi：玩家周圍的框（下面四個值）；full：整個畫面（慢、誤判多）；attack：攻擊範圍＋外擴（上游）'],
@@ -192,7 +253,7 @@ const LABELS = {
   'monster_detect.search_box_margin': ['找怪範圍外擴', '參考像素'],
   'edge_teleport.enable': ['平台邊緣自動跳回', ''],
   'watchdog.timeout': ['卡住幾秒後隨機動作', ''],
-  'detection_lost.timeout': ['偵測不到幾秒後停手', '小地圖或玩家不見就放開所有鍵'],
+  'detection_lost.timeout': ['偵測不到幾秒後停手（秒）', '小地圖或玩家不見就放開所有鍵'],
   'system.fps_limit_main': ['每秒處理幾張', '越低越省 CPU'],
 };
 const GROUPS = [
@@ -202,7 +263,9 @@ const GROUPS = [
   ['找玩家', ['player_detect.mode', 'player_detect.nametag_thres']],
   ['喝水', ['health_monitor.enable', 'health_monitor.add_hp_percent', 'health_monitor.add_mp_percent', 'health_monitor.add_hp_cooldown', 'health_monitor.add_mp_cooldown']],
   ['攻擊與偵測', ['directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown', 'aoe_skill.range_x', 'aoe_skill.range_y', 'monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search_box_margin', 'monster_detect.search', 'monster_detect.roi_left', 'monster_detect.roi_right', 'monster_detect.roi_up', 'monster_detect.roi_down', 'monster_detect.interval_frames']],
+  ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
   ['安全與其他', ['edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'system.fps_limit_main']],
+  ['其他時間設定', ['watchdog.last_attack_timeout', 'scheduled_channel_switching.interval_seconds', 'health_monitor.return_home_watch_dog_timeout', 'health_monitor.fps_limit', 'buff_skill.action_cooldown', 'aoe_skill.cooldown', 'teleport.cooldown', 'rune_find.near_rune_duration', 'patrol.patrol_attack_interval', 'player_detect.nametag_local_timeout', 'system.fps_limit_window_capturor', 'wingpu.debug_interval', 'wingpu.redetect_interval']],
 ];
 let CFG = null, LIVE = false;
 
@@ -256,6 +319,26 @@ async function poll() {
   $('bars').innerHTML = hm.bars_found ? bar('HP', hm.hp, '#dc2626') + bar('MP', hm.mp, '#2563eb') + bar('EXP', hm.exp, '#ca8a04') : '<span class="msg">找不到 HP/MP 條</span>';
   $('recent').textContent = (inp.recent || []).slice().reverse().join('\n') || '（還沒有）';
   $('act-note').textContent = LIVE ? '（真的送出）' : '（模擬：只記錄、沒有送出）';
+  const hc = s.hunt_cycle;
+  if (hc && hc.enabled) {
+    $('b-cycle').hidden = false;
+    $('b-cycle').textContent = `${hc.phase_cn}` + (hc.remaining_s !== null ? ` 剩 ${fmtS(hc.remaining_s)}` : '');
+    $('b-cycle').className = 'badge ' + (hc.phase === 'hunt' ? 'b-ok' : hc.phase === 'ended' ? 'b-bad' : 'b-warn');
+    const pl = hc.plan || {};
+    $('cyclest').innerHTML = [
+      ['階段', `<b>${esc(hc.phase_cn)}</b>` + (hc.phase === 'ended' ? `（${esc(hc.ended_why)}；要再開始請按「重新啟動」）` : '')],
+      ['這個階段還剩', fmtS(hc.remaining_s)],
+      ['第幾輪練功', hc.cycle],
+      ['這次已玩', fmtS(hc.session_elapsed_s) + (hc.session_left_s !== null ? `，還能玩 ${fmtS(hc.session_left_s)}` : '')],
+      ['休息方式', {stop: '原地停手', safe_spot: '走到安全點', go_home: '回城後結束'}[hc.rest_action] + (hc.safe_spot ? `，安全點 [${hc.safe_spot}]` : (hc.rest_action === 'safe_spot' ? '，<span class="msg">這張地圖還沒設安全點</span>' : ''))],
+      ['前往安全點', pl.cmd !== undefined ? `${pl.how === 'route_safe' ? '照安全路線' : pl.how === 'same_level' ? '同一層直接走' : '沒有路線'}：角色 [${pl.pos}] → [${pl.target}]，差 (${pl.dx}, ${pl.dy})，指令 ${esc(pl.cmd ?? '-')}${LIVE ? '' : '（模擬：會送）'}` : '-'],
+      ['最近的切換', (hc.events || []).slice(-6).reverse().map(esc).join('<br>')],
+    ].map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  } else {
+    $('b-cycle').hidden = true;
+    $('cyclest').innerHTML = '<tr><td class="msg">沒有啟用（在下面「設定 → 練功 / 休息循環」打開）</td><td></td></tr>';
+  }
+  if (s.minimap) { RP.player = s.minimap.player_global; rpDraw(); }
   const bs = s.buffs || [];
   $('buff-note').textContent = LIVE ? '' : '（模擬：「放」= 會放，沒有送出）';
   $('buffst').innerHTML = bs.length ? '<tr><td>Buff</td><td>下次 / 上次</td></tr>' + bs.map(b =>
@@ -309,6 +392,11 @@ function fieldHtml(f, v) {
     input = `<input type="checkbox" id="${id}" ${v ? 'checked' : ''}>`;
   } else if (f.kind === 'buffs') {
     input = `<div id="${id}"></div><button type="button" onclick="addBuff({})">＋ 新增 Buff</button>`;
+  } else if (f.kind === 'range') {
+    const a = (v || [])[0] ?? '', b = (v || [])[1] ?? '';
+    input = `<div class="row" id="${id}" style="flex-wrap:nowrap"><input class="ra" type="number" inputmode="decimal" step="any" min="${f.range[0]}" max="${f.range[1]}" value="${a}" placeholder="最少"><span>～</span><input class="rb" type="number" inputmode="decimal" step="any" min="${f.range[0]}" max="${f.range[1]}" value="${b}" placeholder="最多"></div>`;
+  } else if (f.kind === 'hhmm') {
+    input = `<input id="${id}" type="time" value="${esc(v ?? '')}">`;
   } else if (f.kind === 'num' || f.kind === 'int') {
     input = `<input id="${id}" type="number" inputmode="decimal" step="${f.kind === 'int' ? 1 : 'any'}" min="${f.range[0]}" max="${f.range[1]}" value="${v ?? ''}">`;
   } else {
@@ -333,7 +421,8 @@ function addBuff(it) {
     + `<button type="button" onclick="this.parentNode.remove()">刪除</button>`;
   $('f-buff_skill-items').appendChild(d);
 }
-async function loadConfig() {
+function fmtS(x) { if (x === null || x === undefined) return '-'; x = Math.max(0, Math.round(x)); const h = Math.floor(x / 3600), m = Math.floor(x % 3600 / 60), s = x % 60; return (h ? h + ' 小時 ' : '') + (h || m ? m + ' 分 ' : '') + s + ' 秒'; }
+async function loadConfig(keepMsg) {
   CFG = await api('api/config');
   $('ufile').textContent = CFG.user_file;
   const byName = Object.fromEntries(CFG.fields.map(f => [f.name, f]));
@@ -345,7 +434,8 @@ async function loadConfig() {
   renderRoutes();
   (CFG.values['buff_skill.items'] || []).forEach(addBuff);
   ntStatus();
-  $('save-msg').textContent = '';
+  if (!keepMsg) $('save-msg').textContent = '';
+  rpLoad();
 }
 function collect() {
   const v = {};
@@ -361,6 +451,7 @@ function collect() {
     }
     const el = $(id);
     if (f.kind === 'bool') v[f.name] = el.checked;
+    else if (f.kind === 'range') v[f.name] = [el.querySelector('.ra').value, el.querySelector('.rb').value];
     else v[f.name] = el.value;
   }
   return v;
@@ -376,8 +467,12 @@ async function save(apply) {
     $('save-msg').textContent = '沒有儲存：請修正紅字。';
     return;
   }
-  $('save-msg').textContent = '已儲存。' + (apply ? '重新啟動中…' : '按「重新啟動」後生效。');
-  if (apply) restart(); else poll();
+  const need = r.needs_restart || [];
+  const hc = r.hunt_cycle;
+  let msg = need.length ? `已儲存。${need.length} 項要重新啟動 bot 才生效（${need.join('、')}），其餘已立即套用。` : '已儲存，已立即套用（不用重新啟動）。';
+  if (hc && hc.enabled && hc.remaining_s !== null) msg += ` 目前${hc.phase_cn}，還剩 ${fmtS(hc.remaining_s)}。`;
+  $('save-msg').textContent = msg + (apply && need.length ? ' 重新啟動中…' : '');
+  if (apply && need.length) restart(); else { poll(); loadConfig(true); }
 }
 async function resetCfg() {
   if (!confirm('清除網頁存的所有設定（會留一份 .bak），回到內建設定？')) return;
@@ -397,6 +492,99 @@ async function restart() {
   poll();
   startImage();
 }
+
+// ---------- safe spot / safe route painter ----------
+const RP = {info: null, w: 0, h: 0, map: null, hunt: null, safe: null, color: null, player: null, down: false};
+function rpTool() { return document.querySelector('input[name=rptool]:checked').value; }
+async function rpImage(name) {
+  return new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = './api/route_img?name=' + encodeURIComponent(name) + '&t=' + Date.now(); });
+}
+function rpPixels(im) {
+  const c = document.createElement('canvas'); c.width = RP.w; c.height = RP.h;
+  const g = c.getContext('2d'); g.drawImage(im, 0, 0); return g.getImageData(0, 0, RP.w, RP.h);
+}
+function rpKeepLegend(data) {
+  // keep only route colours (route png: map pixels + colour lines)
+  const ok = new Set(RP.info.legend.map(l => l.rgb.join(',')));
+  const out = new Uint8ClampedArray(RP.w * RP.h * 4);
+  for (let i = 0; i < RP.w * RP.h; i++) {
+    const k = data.data[i * 4] + ',' + data.data[i * 4 + 1] + ',' + data.data[i * 4 + 2];
+    if (ok.has(k)) { out.set(data.data.subarray(i * 4, i * 4 + 3), i * 4); out[i * 4 + 3] = 255; }
+  }
+  return out;
+}
+async function rpLoad() {
+  const info = await api('api/routes');
+  if (!info || !info.w) { $('rp-msg').textContent = '這個模式沒有地圖'; return; }
+  RP.info = info; RP.w = info.w; RP.h = info.h;
+  $('rp-map').textContent = info.map;
+  const sel = $('rp-route');
+  sel.innerHTML = info.routes.map(r => `<option>${esc(r)}</option>`).join('');
+  RP.map = await rpImage('map');
+  const hr = info.routes.length ? await rpImage(sel.value || info.routes[0]) : null;
+  RP.hunt = hr ? rpKeepLegend(rpPixels(hr)) : null;
+  const sr = info.route_safe ? await rpImage('route_safe') : null;
+  RP.safe = sr ? rpKeepLegend(rpPixels(sr)) : new Uint8ClampedArray(RP.w * RP.h * 4);
+  RP.spot = info.safe_spot; RP.player = info.player_global;
+  const vis = info.legend.filter(l => !l.hidden);
+  if (!RP.color) RP.color = vis[0].rgb;
+  $('rp-pal').innerHTML = vis.map(l => `<button type="button" data-rgb="${l.rgb}" class="${l.rgb.join(',') === RP.color.join(',') ? 'sel' : ''}" title="${esc(l.cmd)}"><span class="sw" style="background:rgb(${l.rgb})"></span>${esc(l.cn)}</button>`).join('')
+    + (info.legend.some(l => l.hidden) ? '<span class="msg">（瞬移的顏色沒列出：沒有設瞬移鍵，路線上的瞬移會改成跳）</span>' : '');
+  $('rp-pal').querySelectorAll('button').forEach(b => b.onclick = () => { RP.color = b.dataset.rgb.split(',').map(Number); $('rp-pal').querySelectorAll('button').forEach(x => x.classList.toggle('sel', x === b)); document.querySelector('input[name=rptool][value=paint]').checked = true; });
+  $('rp-msg').textContent = info.route_safe ? `安全路線：${info.route_safe_path}` : '這張地圖還沒有安全路線。';
+  rpDraw();
+}
+function rpDraw() {
+  if (!RP.info || !RP.map) return;
+  const z = +$('rp-zoom').value, cv = $('rp-cv');
+  if (cv.width !== RP.w * z) { cv.width = RP.w * z; cv.height = RP.h * z; }
+  const g = cv.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.globalAlpha = 1; g.drawImage(RP.map, 0, 0, RP.w * z, RP.h * z);
+  const cells = (arr, alpha) => { if (!arr) return; g.globalAlpha = alpha; for (let i = 0; i < RP.w * RP.h; i++) if (arr[i * 4 + 3]) { g.fillStyle = `rgb(${arr[i * 4]},${arr[i * 4 + 1]},${arr[i * 4 + 2]})`; g.fillRect((i % RP.w) * z, Math.floor(i / RP.w) * z, z, z); } };
+  if ($('rp-hunt').checked) cells(RP.hunt, 0.45);
+  cells(RP.safe, 1);
+  g.globalAlpha = 1;
+  if (RP.spot) { const [x, y] = RP.spot, t = RP.info.tolerance; g.strokeStyle = '#f0f'; g.lineWidth = 2; g.strokeRect((x - t[0]) * z, (y - t[1]) * z, (2 * t[0] + 1) * z, (2 * t[1] + 1) * z); g.beginPath(); g.moveTo((x - 2) * z, (y - 2) * z); g.lineTo((x + 3) * z, (y + 3) * z); g.moveTo((x + 3) * z, (y - 2) * z); g.lineTo((x - 2) * z, (y + 3) * z); g.stroke(); }
+  if (RP.player) { g.fillStyle = '#08f'; g.beginPath(); g.arc((RP.player[0] + .5) * z, (RP.player[1] + .5) * z, 1.5 * z, 0, 7); g.fill(); }
+}
+function rpCell(e) { const cv = $('rp-cv'), b = cv.getBoundingClientRect(); const z = +$('rp-zoom').value; return [Math.floor((e.clientX - b.left) * cv.width / b.width / z), Math.floor((e.clientY - b.top) * cv.height / b.height / z)]; }
+function rpPaint(c) {
+  const n = +$('rp-brush').value, er = rpTool() === 'erase';
+  for (let dy = 0; dy < n; dy++) for (let dx = 0; dx < n; dx++) {
+    const x = c[0] + dx - Math.floor((n - 1) / 2), y = c[1] + dy - Math.floor((n - 1) / 2);
+    if (x < 0 || y < 0 || x >= RP.w || y >= RP.h) continue;
+    const i = (y * RP.w + x) * 4;
+    if (er) RP.safe[i + 3] = 0; else { RP.safe.set(RP.color, i); RP.safe[i + 3] = 255; }
+  }
+}
+(function () {
+  const cv = $('rp-cv');
+  cv.addEventListener('pointerdown', async e => {
+    if (!RP.info) return;
+    const c = rpCell(e);
+    if (rpTool() === 'spot') {
+      const r = await api('api/safe_spot', {x: c[0], y: c[1]});
+      if (r.ok) { RP.spot = r.safe_spot; $('rp-msg').textContent = `安全點設在 [${r.safe_spot}]（${r.map}），已存、立即生效。`; } else $('rp-msg').textContent = JSON.stringify(r.errors);
+      rpDraw(); return;
+    }
+    RP.down = true; cv.setPointerCapture(e.pointerId); rpPaint(c); rpDraw(); e.preventDefault();
+  });
+  cv.addEventListener('pointermove', e => { if (RP.down) { rpPaint(rpCell(e)); rpDraw(); } });
+  cv.addEventListener('pointerup', () => { RP.down = false; });
+  $('rp-zoom').onchange = () => { $('rp-cv').width = 0; rpDraw(); };
+  $('rp-hunt').onchange = rpDraw;
+  $('rp-route').onchange = async () => { const im = await rpImage($('rp-route').value); RP.hunt = im ? rpKeepLegend(rpPixels(im)) : null; rpDraw(); };
+})();
+async function rpSave() {
+  const c = document.createElement('canvas'); c.width = RP.w; c.height = RP.h;
+  const g = c.getContext('2d'); g.putImageData(new ImageData(new Uint8ClampedArray(RP.safe), RP.w, RP.h), 0, 0);
+  const r = await api('api/route_safe', {png: c.toDataURL('image/png')});
+  $('rp-msg').textContent = r.ok ? '安全路線已存（bot 2 秒內換用）：' + Object.entries(r.pixels).map(([k, v]) => `${k} ${v} 格`).join('、') : '沒存：' + Object.values(r.errors || {}).join('；');
+}
+function rpClear() { if (confirm('清空畫布（還沒存）？')) { RP.safe = new Uint8ClampedArray(RP.w * RP.h * 4); rpDraw(); } }
+async function rpDelete() { if (!confirm('刪除這張地圖的安全路線（留 .bak）？')) return; await api('api/route_safe', {delete: true}); rpLoad(); }
+async function rpSpotClear() { if (!confirm('清除這張地圖的安全點？')) return; await api('api/safe_spot', {clear: true}); RP.spot = null; rpDraw(); }
 
 // ---------- nametag capture ----------
 let NT = null, NTRECT = null, NTZ = 1;

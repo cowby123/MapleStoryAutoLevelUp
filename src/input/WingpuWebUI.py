@@ -35,6 +35,9 @@ from src.utils.common import load_yaml, convert_tuples_to_lists
 from src.utils.config_layers import default_user_override
 from src.input.WingpuKeyboard import get_keyboard, to_key_code
 from src.utils.nametag import propose_rect, save_template, NametagTracker
+from src.utils.resolution import apply_scale
+import base64
+import numpy as np
 
 # Settings the page edits: (section, key, kind, extra)
 #   kind: key | keys | num | int | bool | choice | map | routes | floats
@@ -77,7 +80,45 @@ FIELDS = [
     ("watchdog", "timeout", "num", (1, 600)),
     ("detection_lost", "timeout", "num", (0.5, 60)),
     ("system", "fps_limit_main", "int", (1, 30)),
+    # hunt / rest cycles
+    ("hunt_cycle", "enable", "bool", None),
+    ("hunt_cycle", "hunt_minutes", "range", (0.5, 600)),
+    ("hunt_cycle", "rest_minutes", "range", (0.25, 600)),
+    ("hunt_cycle", "rest_action", "choice", ["stop", "safe_spot", "go_home"]),
+    ("hunt_cycle", "safe_spot_timeout", "int", (10, 1800)),
+    ("hunt_cycle", "session_hours", "num", (0, 48)),
+    ("hunt_cycle", "window_start", "hhmm", None),
+    ("hunt_cycle", "window_end", "hhmm", None),
+    # every other time setting
+    ("watchdog", "last_attack_timeout", "int", (30, 7200)),
+    ("scheduled_channel_switching", "interval_seconds", "int", (60, 86400)),
+    ("health_monitor", "return_home_watch_dog_timeout", "num", (1, 60)),
+    ("health_monitor", "fps_limit", "int", (1, 30)),
+    ("buff_skill", "action_cooldown", "num", (0, 10)),
+    ("aoe_skill", "cooldown", "num", (0, 30)),
+    ("teleport", "cooldown", "num", (0, 30)),
+    ("rune_find", "near_rune_duration", "num", (1, 120)),
+    ("patrol", "patrol_attack_interval", "num", (0.1, 60)),
+    ("player_detect", "nametag_local_timeout", "num", (0.1, 10)),
+    ("system", "fps_limit_window_capturor", "int", (1, 30)),
+    ("wingpu", "debug_interval", "num", (0.5, 60)),
+    ("wingpu", "redetect_interval", "num", (1, 600)),
 ]
+
+# Applied when the bot restarts; everything else applies at once (apply_live)
+RESTART_FIELDS = {"bot.map", "route.files", "bot.mode", "bot.attack", "health_monitor.enable"}
+
+# Route colour code -> name in the painter (teleport ones only when a teleport key is set)
+COMMAND_CN = {
+    "left none none": "左", "right none none": "右",
+    "left none jump": "左跳", "right none jump": "右跳",
+    "none none jump": "原地跳", "none down jump": "下跳",
+    "none up none": "往上爬", "none down none": "往下爬",
+    "none up jump": "跳上繩子（按住上＋跳）",
+    "stop stop stop": "停", "none none goal": "目標（換下一條路線）",
+    "none up teleport": "往上瞬移", "none down teleport": "往下瞬移",
+    "left none teleport": "往左瞬移", "right none teleport": "往右瞬移",
+}
 
 
 def _get(cfg, sec, key):
@@ -222,6 +263,21 @@ class WebUI:
                     lo, hi = extra
                     if not lo <= v <= hi:
                         raise ValueError(f"範圍 {lo}–{hi}")
+                elif kind == "range":
+                    lo, hi = extra
+                    a, b = float(v[0]), float(v[1])
+                    if not (lo <= a <= hi and lo <= b <= hi):
+                        raise ValueError(f"範圍 {lo:g}–{hi:g}")
+                    if a > b:
+                        raise ValueError("最少不能大於最多")
+                    v = [int(a) if a == int(a) else a, int(b) if b == int(b) else b]
+                elif kind == "hhmm":
+                    v = "" if v is None else str(v).strip()
+                    if v:
+                        hh, _, mm = v.partition(":")
+                        if not (hh.isdigit() and mm.isdigit() and 0 <= int(hh) <= 23 and 0 <= int(mm) <= 59):
+                            raise ValueError("格式 HH:MM，例如 09:30；空白 = 不限")
+                        v = f"{int(hh):02d}:{int(mm):02d}"
                 elif kind == "floats":
                     v = [float(x) for x in (v or [])]
                     lo, hi = extra
@@ -265,9 +321,185 @@ class WebUI:
                     over[sec] = {}
                 over[sec].update(kv)
             self._write(over)
-        self.control.pending_restart = True
-        logger.info(f"[WebUI] settings saved to {self.path}: {clean}")
-        return {"ok": True, "saved": clean, "user_file": self.path}
+        live, restart = self.apply_live(clean)
+        if restart:
+            self.control.pending_restart = True
+        logger.info(f"[WebUI] settings saved to {self.path}: {clean}; live {live}; restart {restart}")
+        hc = getattr(self.bot, "hunt_cycle", None)
+        return {"ok": True, "saved": clean, "user_file": self.path, "applied_live": live,
+                "needs_restart": restart, "hunt_cycle": hc.status() if hc is not None else None}
+
+    def apply_live(self, clean):
+        '''
+        Put saved values into the running bot. Returns (applied names, names
+        that need a bot restart). Lengths are rescaled for the current frame.
+        '''
+        bot = self.bot
+        cfg = bot.cfg
+        base = getattr(bot, "cfg_base", None) or {}
+        live, restart = [], []
+        for sec, kv in clean.items():
+            for key, v in kv.items():
+                name = f"{sec}.{key}"
+                if name in RESTART_FIELDS:
+                    restart.append(name)
+                    continue
+                if sec == "buff_skill" and key in ("keys", "items", "cooldown", "cast_at_start", "names"):
+                    continue
+                cfg.setdefault(sec, {})[key] = copy.deepcopy(v)
+                if sec in base:
+                    base[sec][key] = copy.deepcopy(v)
+                live.append(name)
+        # buffs: same keys in the same order -> live; otherwise the keyboard
+        # controller's timers must be rebuilt (restart)
+        b = clean.get("buff_skill") or {}
+        if "keys" in b:
+            if list(b["keys"]) == list(cfg["buff_skill"].get("keys") or []):
+                for k in ("cooldown", "cast_at_start", "names", "items"):
+                    cfg["buff_skill"][k] = copy.deepcopy(b[k])
+                live.append("buff_skill.items")
+            else:
+                restart.append("buff_skill.items")
+        # derived state
+        if bot.frame_hw and base:
+            apply_scale(cfg, base, bot.scale, bot.frame_hw)
+        if "monster_detect" in clean:
+            bot.build_templates(bot.scale)
+        kb = bot.kb
+        if kb is not None and "key" in clean:
+            kb.attack_key = cfg["key"]["aoe_skill"] if cfg["bot"]["attack"] == "aoe_skill" \
+                else cfg["key"]["directional_attack"]
+        hm = bot.health_monitor
+        if hm is not None:
+            hm.fps_limit = cfg["health_monitor"]["fps_limit"]
+        cap = bot.capture
+        if cap is not None:
+            if hasattr(cap, "fps_limit"):
+                cap.fps_limit = cfg["system"]["fps_limit_window_capturor"]
+            if hasattr(cap, "redetect_interval"):
+                cap.redetect_interval = float((cfg.get("wingpu") or {}).get("redetect_interval", 5))
+        self.control.debug_interval = float((cfg.get("wingpu") or {}).get("debug_interval", 2))
+        tr = getattr(bot, "nametag", None)
+        if tr is not None:
+            pd = cfg.get("player_detect") or {}
+            tr.thres = float(pd.get("nametag_thres", tr.thres))
+            tr.local_timeout = float(pd.get("nametag_local_timeout", tr.local_timeout))
+        hc = getattr(bot, "hunt_cycle", None)
+        if hc is not None and "hunt_cycle" in clean:
+            hc.reconfigure(cfg.get("hunt_cycle"))
+        return live, restart
+
+    ##########################
+    ### Safe spot / routes ###
+    ##########################
+    def legend(self):
+        cfg = self.bot.cfg
+        has_tp = bool(cfg["key"].get("teleport"))
+        out = []
+        for table in ("color_code", "color_code_up_down"):
+            for rgb, cmd in cfg["route"][table].items():
+                out.append({"rgb": [int(c) for c in rgb.split(",")], "cmd": cmd,
+                            "cn": COMMAND_CN.get(cmd, cmd),
+                            "hidden": "teleport" in cmd and not has_tp})
+        return out
+
+    def routes(self):
+        bot = self.bot
+        m = bot.cfg["bot"]["map"]
+        h, w = bot.img_map.shape[:2] if bot.img_map is not None else (0, 0)
+        names = sorted(os.path.basename(p) for p in glob.glob(f"minimaps/{m}/route*.png")
+                       if not p.endswith(("route_rest.png", "route_safe.png")))
+        safe_path = bot.route_safe_path()
+        return {"map": m, "w": w, "h": h, "routes": names,
+                "route_safe": os.path.exists(safe_path), "route_safe_path": safe_path,
+                "safe_spot": list(bot.safe_spot()) if bot.safe_spot() else None,
+                "player_global": list(bot.loc_player_global),
+                "tolerance": [(bot.cfg.get("hunt_cycle") or {}).get("safe_spot_tolerance_x", 3),
+                              (bot.cfg.get("hunt_cycle") or {}).get("safe_spot_tolerance_y", 4)],
+                "legend": self.legend()}
+
+    def route_png(self, name):
+        bot = self.bot
+        m = bot.cfg["bot"]["map"]
+        if name == "map":
+            path = f"minimaps/{m}/map.png"
+        elif name == "route_safe":
+            path = bot.route_safe_path()
+        elif name.startswith("route") and name.endswith(".png") and "/" not in name and "\\" not in name:
+            path = f"minimaps/{m}/{name}"
+        else:
+            return None
+        if not os.path.exists(path):
+            return None
+        with open(path, "rb") as f:
+            return f.read()
+
+    def save_route_safe(self, body):
+        '''
+        {"png": base64 of an RGBA PNG the size of map.png}: pixels in a route
+        colour (alpha > 0) are kept, everything else becomes black
+        '''
+        bot = self.bot
+        if body.get("delete"):
+            p = bot.route_safe_path()
+            if os.path.exists(p):
+                os.replace(p, p + ".bak")
+            return {"ok": True, "deleted": True}
+        try:
+            raw = base64.b64decode(str(body.get("png", "")).split(",")[-1])
+            img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_UNCHANGED)
+        except (ValueError, TypeError):
+            img = None
+        if img is None or img.ndim != 3 or img.shape[2] != 4:
+            return {"ok": False, "errors": {"route_safe": "圖檔讀不出來"}}
+        h, w = bot.img_map.shape[:2]
+        if img.shape[:2] != (h, w):
+            return {"ok": False, "errors": {"route_safe": f"大小要是 {w}×{h}"}}
+        rgb = img[:, :, 2::-1]
+        out = np.zeros((h, w, 3), np.uint8)
+        counts = {}
+        for it in self.legend():
+            m = np.all(rgb == it["rgb"], axis=2) & (img[:, :, 3] > 0)
+            n = int(m.sum())
+            if n:
+                out[m] = it["rgb"]
+                counts[it["cn"]] = n
+        p = bot.route_safe_path()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        tmp = p + ".tmp.png"
+        cv2.imwrite(tmp, cv2.cvtColor(out, cv2.COLOR_RGB2BGR))
+        os.replace(tmp, p)
+        logger.info(f"[WebUI] safe route saved {p}: {counts}")
+        return {"ok": True, "path": p, "pixels": counts}
+
+    def save_safe_spot(self, body):
+        bot = self.bot
+        m = bot.cfg["bot"]["map"]
+        with self.lock:
+            over = self.user_override()
+            hc = over.setdefault("hunt_cycle", {})
+            spots = hc.setdefault("safe_spots", {})
+            if body.get("clear"):
+                spots.pop(m, None)
+                val = None
+            else:
+                h, w = bot.img_map.shape[:2]
+                try:
+                    x, y = int(body["x"]), int(body["y"])
+                except (KeyError, TypeError, ValueError):
+                    return {"ok": False, "errors": {"safe_spot": "要 x, y"}}
+                if not (0 <= x < w and 0 <= y < h):
+                    return {"ok": False, "errors": {"safe_spot": "點在小地圖外面"}}
+                spots[m] = val = [x, y]
+            self._write(over)
+        live = bot.cfg.setdefault("hunt_cycle", {})
+        live_spots = dict(live.get("safe_spots") or {})
+        if val is None:
+            live_spots.pop(m, None)
+        else:
+            live_spots[m] = val
+        live["safe_spots"] = live_spots
+        return {"ok": True, "map": m, "safe_spot": val}
 
     def reset(self):
         '''

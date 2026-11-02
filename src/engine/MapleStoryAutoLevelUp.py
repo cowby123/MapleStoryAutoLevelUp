@@ -31,6 +31,7 @@ from src.utils.common import (find_pattern_sqdiff, draw_rectangle, screenshot, n
 from src.utils.resolution import (compute_scale, apply_scale, snapshot_base,
     scale_template, sc, MinimapScale, GREEN)
 from src.utils.nametag import NametagTracker, default_dir as nametag_default_dir
+from src.engine.HuntCycle import HuntCycle
 from src.input.KeyBoardController import KeyBoardController, press_key
 if is_mac():
     from src.input.GameWindowCapturorForMac import GameWindowCapturor
@@ -138,6 +139,9 @@ class MapleStoryAutoBot:
         self.player_source = None # "party_bar" | "nametag" | None (this frame)
         self.t_nametag_check = 0.0
         self.mob_search_box = None # (x0, y0, x1, y1) of the last monster search
+        # Hunt / rest cycles (hunt_cycle)
+        self.hunt_cycle = None
+        self.safe_plan = {} # walking to the safe spot: target, position, command
         self.det_counts = {"frames": 0, "minimap": 0, "player_dot": 0, "player": 0,
                            "player_party_bar": 0, "player_nametag": 0,
                            "monsters": 0, "lost_paused": 0}
@@ -205,7 +209,8 @@ class MapleStoryAutoBot:
                                       cv2.IMREAD_COLOR)
             # Load route*.png from minimaps/
             route_files = sorted(glob.glob(f"minimaps/{map_name}/route*.png"))
-            route_files = [p for p in route_files if not p.endswith("route_rest.png")]
+            route_files = [p for p in route_files
+                           if not p.endswith("route_rest.png") and not p.endswith("route_safe.png")]
             # route.files: only these routes, in this order (web UI); [] = all
             chosen = list(cfg["route"].get("files") or [])
             if chosen:
@@ -474,6 +479,9 @@ class MapleStoryAutoBot:
 
         # Nametag tracker (player_detect.mode nametag / auto)
         self.init_nametag()
+
+        # Hunt / rest cycles
+        self.hunt_cycle = HuntCycle(self.cfg.get("hunt_cycle"), log=logger.info)
 
         # Reset all timers
         self.t_last_frame = time.time()
@@ -1889,6 +1897,149 @@ class MapleStoryAutoBot:
         self.minimap_rect = r
         return r
 
+    def safe_spot(self):
+        '''
+        This map's safe spot (route-map pixels) or None
+        '''
+        spots = (self.cfg.get("hunt_cycle", {}) or {}).get("safe_spots") or {}
+        p = spots.get(self.cfg["bot"]["map"])
+        return (int(p[0]), int(p[1])) if p else None
+
+    def at_safe_spot(self, spot):
+        hc = self.cfg.get("hunt_cycle", {}) or {}
+        tx, ty = int(hc.get("safe_spot_tolerance_x", 3)), int(hc.get("safe_spot_tolerance_y", 4))
+        x, y = self.loc_player_global
+        return abs(x - spot[0]) <= tx and abs(y - spot[1]) <= ty
+
+    def route_safe_path(self, map_name=None):
+        '''
+        The safe route of a map lives in the user area (not in minimaps/, whose
+        route*.png are all hunting routes): /work/routes/<map>/route_safe.png
+        '''
+        base = "/work" if os.path.isdir("/work") and os.access("/work", os.W_OK) else "."
+        root = (self.cfg.get("hunt_cycle", {}) or {}).get("routes_dir") or os.path.join(base, "routes")
+        return os.path.join(root, map_name or self.cfg["bot"]["map"], "route_safe.png")
+
+    def load_route_safe(self):
+        '''
+        (Re)load route_safe.png when it changed on disk (web UI painter); RGB like
+        the hunting routes. None when there is none.
+        '''
+        path = self.route_safe_path()
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            self.img_route_safe, self.route_safe_mtime = None, None
+            return None
+        if getattr(self, "route_safe_mtime", None) != mtime:
+            img = cv2.imread(path, cv2.IMREAD_COLOR)
+            if img is not None and self.img_map is not None and img.shape[:2] != self.img_map.shape[:2]:
+                logger.error(f"[HuntCycle] {path} is {img.shape[1]}x{img.shape[0]}, "
+                             f"map.png is {self.img_map.shape[1]}x{self.img_map.shape[0]}: ignored")
+                img = None
+            self.img_route_safe = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) if img is not None else None
+            self.route_safe_mtime = mtime
+            logger.info(f"[HuntCycle] safe route {path}: {'loaded' if img is not None else 'unusable'}")
+        return self.img_route_safe
+
+    def plan_to_safe(self, spot):
+        '''
+        Command toward the safe spot. With a safe route (route_safe.png, same
+        colour code as the hunting routes) the normal route logic follows it
+        (nearest colour around the player, ladders, jumps, edges). Without one,
+        only a spot on the same platform (minimap y within the tolerance) is
+        walked to horizontally. Returns the command, or None = cannot plan.
+        '''
+        hc = self.cfg.get("hunt_cycle", {}) or {}
+        tx, ty = int(hc.get("safe_spot_tolerance_x", 3)), int(hc.get("safe_spot_tolerance_y", 4))
+        x, y = self.loc_player_global
+        dx, dy = spot[0] - x, spot[1] - y
+        route_safe = self.load_route_safe()
+        how = None
+        if route_safe is not None:
+            hunting_route = self.img_route
+            self.img_route = route_safe
+            if self.is_show_debug_window:
+                self.img_route_debug = cv2.cvtColor(route_safe, cv2.COLOR_RGB2BGR)
+                cv2.drawMarker(self.img_route_debug, spot, (255, 0, 255), cv2.MARKER_TILTED_CROSS, 7, 1)
+            self.cmd_move_x = self.cmd_move_y = self.cmd_action = "none"
+            self.update_cmd_by_route()
+            self.img_route = hunting_route
+            if self.cmd_action == "goal":
+                self.cmd_action = "none"
+            if (self.cmd_move_x, self.cmd_move_y, self.cmd_action) == ("none", "none", "none") and abs(dy) <= ty:
+                # off the painted line but on the spot's level: walk to it
+                self.cmd_move_x = "left" if dx < -tx else "right" if dx > tx else "none"
+            cmd = f"{self.cmd_move_x} {self.cmd_move_y} {self.cmd_action}"
+            how = "route_safe"
+        elif abs(dy) <= ty:
+            cmd = f"{'left' if dx < -tx else 'right' if dx > tx else 'none'} none none"
+            how = "same_level"
+        else:
+            cmd = None
+        self.safe_plan = {"target": list(spot), "pos": [int(x), int(y)], "dx": int(dx), "dy": int(dy),
+                          "cmd": cmd, "how": how}
+        return cmd
+
+    def run_hunt_cycle(self):
+        '''
+        Hunt / rest cycle (hunt_cycle). Returns True when the bot is NOT
+        hunting this frame (resting, walking to the safe spot, ended): the
+        state machine, the watchdogs and channel changes are skipped.
+        '''
+        hc = self.hunt_cycle
+        if hc is None or not hc.enabled:
+            if self.kb.is_resting or self.kb.no_buffs:
+                self.kb.is_resting = self.kb.no_buffs = False
+            return False
+        prev = hc.phase
+        spot = self.safe_spot() if hc.phase == "to_safe" else None
+        if hc.phase == "to_safe" and spot is None:
+            hc.fail_safe_spot(f"{self.cfg['bot']['map']} 沒有設定安全點，原地休息")
+        phase = hc.tick(at_safe_spot=bool(spot) and self.at_safe_spot(spot))
+        if phase != prev:
+            logger.info(f"[HuntCycle] {prev} -> {phase}")
+            self.kb.set_command("none none none")
+            self.kb.release_all_key()
+            if is_wingpu():
+                from src.input.WingpuKeyboard import get_keyboard
+                get_keyboard().release_all()
+            if phase == "hunt":
+                # back to hunting: the watchdogs start over (no stuck / no-attack alarms
+                # for the time spent resting)
+                now = time.time()
+                self.t_watch_dog = self.t_last_attack = now
+                self.loc_watch_dog = self.loc_player_global
+                self.safe_plan = {}
+        if hc.take_go_home():
+            logger.info("[HuntCycle] rest_action go_home: return home, then stop")
+            press_key(self.cfg["key"]["return_home"])
+        self.cmd_move_x = self.cmd_move_y = self.cmd_action = "none"
+        if phase == "hunt":
+            self.kb.is_resting = self.kb.no_buffs = False
+            return False
+        if phase == "to_safe":
+            self.kb.is_resting = False
+            self.kb.no_buffs = True
+            spot = self.safe_spot()
+            cmd = self.plan_to_safe(spot) if spot is not None else None
+            if cmd is None:
+                hc.fail_safe_spot("沒有安全點路線（安全點不在同一層），原地休息")
+                logger.warning(f"[HuntCycle] no safe route for {self.cfg['bot']['map']} and the safe spot "
+                               f"is on another level ({self.safe_plan.get('dy')} px): resting in place")
+                self.kb.no_buffs = False
+                self.kb.is_resting = True
+                self.kb.set_command("none none none")
+                return True
+            self.cmd_move_x, self.cmd_move_y, self.cmd_action = cmd.split()
+            self.kb.set_command(cmd)
+            return True
+        # rest / wait_window / ended: hold still; potions still work (HealthMonitor)
+        self.kb.is_resting = True
+        self.kb.set_command("none none none")
+        self.monsters = []
+        return True
+
     def check_detection_lost(self):
         '''
         True while the bot must hold still because the minimap (normal mode) or
@@ -2119,6 +2270,16 @@ class MapleStoryAutoBot:
             self.loc_player_global = self.loc_player_minimap
         else:
             self.loc_player_global = self.get_player_location_on_global_map()
+            # safe spot (hunt_cycle) on the route debug map and on the minimap
+            spot = self.safe_spot()
+            if spot is not None and self.is_show_debug_window:
+                if self.img_route_debug is not None:
+                    cv2.drawMarker(self.img_route_debug, spot, (255, 0, 255), cv2.MARKER_TILTED_CROSS, 7, 1)
+                mm_ = (self.minimap_scale.m if self.minimap_scale is not None and self.minimap_scale.m
+                       else self.scale)
+                sx = int(round(self.loc_minimap[0] + (spot[0] - self.loc_minimap_global[0]) * mm_))
+                sy = int(round(self.loc_minimap[1] + (spot[1] - self.loc_minimap_global[1]) * mm_))
+                cv2.drawMarker(self.img_frame_debug, (sx, sy), (255, 0, 255), cv2.MARKER_TILTED_CROSS, 9, 2)
 
         self.profiler.mark("Player Location Detection")
 
@@ -2133,6 +2294,22 @@ class MapleStoryAutoBot:
                 cv2.putText(self.img_frame_debug,
                             f"PAUSED: {', '.join(self.lost_reason)} not found",
                             (10, sc(400, self.scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                self.update_info_on_img_frame_debug()
+                self.img_frame_debug_done = self.img_frame_debug
+            self.t_last_frame = time.time()
+            return 0
+
+        ########################
+        ### Hunt / rest cycle ###
+        ########################
+        # (after the safety pause: that one applies in every phase)
+        if self.run_hunt_cycle():
+            self.is_first_frame = False
+            if self.is_show_debug_window:
+                hc = self.hunt_cycle.status()
+                left = f" {hc['remaining_s']:.0f}s" if hc["remaining_s"] is not None else ""
+                cv2.putText(self.img_frame_debug, f"CYCLE: {hc['phase']}{left}",
+                            (10, sc(400, self.scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
                 self.update_info_on_img_frame_debug()
                 self.img_frame_debug_done = self.img_frame_debug
             self.t_last_frame = time.time()

@@ -258,6 +258,9 @@ class WingpuControl:
             "kb_hold": getattr(kb, "is_hold", False) if kb else None,
             "buffs": self.buff_status(),
             "player_source": getattr(bot, "player_source", None),
+            "hunt_cycle": dict(bot.hunt_cycle.status(), safe_spot=bot.safe_spot(), plan=bot.safe_plan,
+                               resting=getattr(kb, "is_resting", False))
+                          if getattr(bot, "hunt_cycle", None) is not None else None,
             "nametag": bot.nametag.status() if getattr(bot, "nametag", None) is not None else None,
             "mob_search": {"mode": bot.cfg["monster_detect"].get("search", "attack"),
                            "box": list(bot.mob_search_box) if getattr(bot, "mob_search_box", None) else None},
@@ -372,7 +375,7 @@ class WingpuControl:
 
             def _body(self):
                 n = int(self.headers.get("Content-Length") or 0)
-                if n > 65536:
+                if n > 4 * 1024 * 1024:
                     raise ValueError("body too large")
                 raw = self.rfile.read(n) if n else b""
                 return json.loads(raw.decode("utf-8")) if raw else {}
@@ -399,6 +402,16 @@ class WingpuControl:
                     self._file("latest_guest.jpg", "image/jpeg")
                 elif path == "/api/config":
                     self._json(control.webui.config())
+                elif path == "/api/routes":
+                    self._json(control.webui.routes())
+                elif path == "/api/route_img":
+                    q = urlparse(self.path).query
+                    name = dict(kv.split("=", 1) for kv in q.split("&") if "=" in kv).get("name", "map")
+                    png = control.webui.route_png(name)
+                    if png is None:
+                        self._send(404, "text/plain", b"no such route")
+                    else:
+                        self._send(200, "image/png", png)
                 elif path == "/api/nametag":
                     self._json(control.webui.nametag_status())
                 elif path == "/api/nametag/template.png":
@@ -458,6 +471,12 @@ class WingpuControl:
                     return
                 elif path == "/api/live":
                     self._json(control.webui.set_live(body))
+                    return
+                elif path == "/api/route_safe":
+                    self._json(control.webui.save_route_safe(body))
+                    return
+                elif path == "/api/safe_spot":
+                    self._json(control.webui.save_safe_spot(body))
                     return
                 elif path == "/api/nametag/snapshot":
                     self._json(control.webui.nametag_snapshot())

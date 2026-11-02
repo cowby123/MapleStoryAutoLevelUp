@@ -70,6 +70,8 @@ class FakeKB:
     def __init__(self):
         self.is_enable = True
         self.is_hold = False
+        self.is_resting = False
+        self.no_buffs = False
         self.is_terminated = False
         self.is_need_force_heal = False
         self.t_last_screenshot = 0.0

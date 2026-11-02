@@ -113,6 +113,8 @@ class KeyBoardController():
         self.is_enable = True
         self.is_need_force_heal = False
         self.is_hold = False # detection lost: send nothing (MapleStoryAutoBot.check_detection_lost)
+        self.is_resting = False # hunt cycle rest: no moving / attacking / buffs (potions: HealthMonitor)
+        self.no_buffs = False # hunt cycle walking to the safe spot: move, but no buffs
         self.is_terminated = False
         # Parameters
         self.debounce_interval = self.cfg["system"]["key_debounce_interval"]
@@ -241,12 +243,12 @@ class KeyBoardController():
         '''
         while not self.is_terminated:
             # Check if game window is active
-            if not self.is_enable or self.is_hold or not self.is_game_window_active():
+            if not self.is_enable or self.is_hold or self.is_resting or not self.is_game_window_active():
                 self.limit_fps()
                 continue
 
             # Buff skill
-            for i, buff_skill_key in enumerate(self.cfg["buff_skill"]["keys"]):
+            for i, buff_skill_key in enumerate([] if self.no_buffs else self.cfg["buff_skill"]["keys"]):
                 cooldown = self.cfg["buff_skill"]["cooldown"][i]
                 if time.time() - self.t_last_buff_cast[i] >= cooldown and \
                     time.time() - self.t_last_skill > self.cfg["buff_skill"]["action_cooldown"]:

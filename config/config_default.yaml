@@ -209,6 +209,7 @@ route:
     "127,0,255": "none down teleport"   # 🟪 Purple
     "0,127,0": "left none teleport"     # 🟩 Dark green
     "139,69,19": "right none teleport"  # 🟫 Brown
+    "0,127,255": "none up jump"         # 🔷 Azure: hold up + jump = grab a rope / ladder out of reach (wingpu fork)
 
   # 🎨 Color-coded(RGB) actions for up and down
   color_code_up_down:
@@ -226,6 +227,23 @@ watchdog:
   timeout: 10          # ⏱️ Time limit (in seconds). If the player stays still for this long, a random action is triggered.
   last_attack_timeout: 1200 # ⏳ Maximum time (in seconds) to not perform attack action
   last_attack_timeout_action: "change_channel" # 🧠 Options: "go_home" "change_channel"
+
+hunt_cycle:
+  # ⏰ Hunt / rest cycles (all of it editable in the wingpu web UI)
+  # Hunt for a random hunt_minutes, rest for a random rest_minutes, repeat.
+  enable: False
+  hunt_minutes: [30, 40]       # [min, max] minutes of hunting per cycle
+  rest_minutes: [5, 10]        # [min, max] minutes of rest per cycle
+  rest_action: "stop"          # "stop": hold still where it is (potions still work)
+                               # "safe_spot": walk to safe_spots[<map>] first (falls back to "stop" after safe_spot_timeout)
+                               # "go_home": press key.return_home, then the session ends (the bot holds still)
+  safe_spot_timeout: 120       # seconds to reach the safe spot
+  safe_spot_tolerance_x: 3     # route-map pixels: close enough to the safe spot
+  safe_spot_tolerance_y: 4
+  safe_spots: {}               # {<map>: [x, y]} in route-map (minimap) pixels, picked in the web UI
+  session_hours: 0             # stop after this many hours (0 = no limit)
+  window_start: ""             # "HH:MM": only play between window_start and window_end ("" = always)
+  window_end: ""
 
 detection_lost:
   # 🛑 Safety pause
