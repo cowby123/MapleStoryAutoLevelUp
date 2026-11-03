@@ -43,6 +43,15 @@ legend{font-weight:600;padding:0 4px}
 dialog{border:none;border-radius:12px;max-width:420px;width:calc(100% - 32px);background:var(--card);color:var(--fg)}
 dialog::backdrop{background:rgba(0,0,0,.5)}
 .msg{font-size:13px;color:var(--mut)}
+#nowp{background:var(--card);border-bottom:1px solid var(--line);padding:8px 12px}
+#now-main{font-size:20px;font-weight:700}
+#now-dry{color:var(--warn);font-weight:700}
+#now-det{font-size:14px;color:var(--mut)}
+#now-keys .badge{margin-right:4px}
+.imgwrap{position:relative}
+#ov{position:absolute;transform:translate(-50%,-100%);background:rgba(0,0,0,.72);color:#fff;font-size:14px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;pointer-events:none;max-width:90%;overflow:hidden;text-overflow:ellipsis}
+#now-hist{font-size:13px;max-height:260px;overflow:auto}
+#now-hist td:first-child{width:auto;white-space:nowrap}
 .banner{background:var(--live);color:#fff;font-weight:700;padding:10px 14px;text-align:center;font-size:16px;position:sticky;top:0;z-index:6}
 #feat{padding:6px 12px;background:var(--card);border-bottom:1px solid var(--line);font-size:13px}
 .chip{display:inline-block;padding:1px 8px;margin:2px;border-radius:999px;border:1px solid var(--ok);color:var(--ok)}
@@ -73,10 +82,17 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
   <span id="b-cycle" class="badge" hidden></span>
 </header>
 <div id="feat"><span class="msg">已啟用功能：</span><span id="feat-list">…</span></div>
+<div id="nowp">
+  <div id="now-dry" hidden>試跑：以下動作不會真的送出</div>
+  <div id="now-main">…</div>
+  <div id="now-det"></div>
+  <div class="row" style="margin-top:4px"><span class="msg">按著的鍵：</span><span id="now-keys"></span>
+    <span class="msg" style="margin-left:12px">HP / MP / EXP：</span><span id="now-bars"></span></div>
+</div>
 <main>
   <section>
     <h2>畫面</h2>
-    <img id="live" class="live" alt="bot 偵測畫面">
+    <div class="imgwrap"><img id="live" class="live" alt="bot 偵測畫面"><div id="ov" hidden></div></div>
     <div class="row" style="margin-top:8px">
       <label class="row"><input type="checkbox" id="mjpeg" checked> 即時串流</label>
       <span class="msg">不勾 = 每秒更新一次圖片；頁面看不到時自動停（不花 CPU）</span>
@@ -102,6 +118,11 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
       <div class="msg">HP / MP / EXP</div>
       <div id="bars"></div>
     </div>
+  </section>
+
+  <section class="wide">
+    <h2>最近的狀態變化 <span class="msg">（最新在上；持續多久）</span></h2>
+    <table id="now-hist"></table>
   </section>
 
   <section class="wide">
@@ -447,6 +468,33 @@ async function poll() {
     `<tr><td>${esc(b.name || b.key)} <span class="msg">${esc(b.key)}，每 ${b.cooldown}s</span></td><td>${b.next_in_s > 0 ? b.next_in_s + ' 秒後' : '等待放（偵測不到或剛攻擊時會延後）'} / ${b.last_cast_s_ago === null ? '還沒放' : b.last_cast_s_ago + ' 秒前' + (LIVE ? '' : '（模擬）')}</td></tr>`).join('')
     : '<tr><td class="msg">沒有啟用的 Buff</td><td></td></tr>';
 }
+
+// ---------- 目前狀態 (./now, ~5/s while the page is visible) ----------
+const KEYCN = {ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', ControlLeft: 'Ctrl', AltLeft: 'Alt', ShiftLeft: 'Shift', Delete: 'Del', End: 'End', Home: 'Home', Space: '空白'};
+let nowBusy = false;
+async function pollNow() {
+  if (nowBusy || document.visibilityState === 'hidden') return;
+  nowBusy = true;
+  try {
+    const n = await (await fetch('./now', {cache: 'no-store'})).json();
+    $('now-main').textContent = n.main || '…';
+    $('now-dry').hidden = !n.dry_run;
+    $('now-det').textContent = (n.details || []).join('　·　') + (n.since_s >= 1 ? `　（已 ${n.since_s.toFixed(0)} 秒）` : '');
+    $('now-keys').innerHTML = (n.pressed || []).length ? n.pressed.map(k => `<span class="badge">${esc(KEYCN[k] || k.replace(/^Key/, ''))}</span>`).join('') : '<span class="msg">（沒有）</span>';
+    const pct = v => v === null || v === undefined ? '-' : v.toFixed(0) + '%';
+    $('now-bars').textContent = `${pct(n.hp)} / ${pct(n.mp)} / ${pct(n.exp)}`;
+    $('now-hist').innerHTML = (n.history || []).map(h => `<tr><td>${esc(h.t)}</td><td>${h.dur} 秒</td><td>${esc(h.main)}</td></tr>`).join('') || '<tr><td class="msg">還沒有</td></tr>';
+    // the same line on the picture, above the character
+    const ov = $('ov'), img = $('live');
+    if (n.frame_wh && n.player && img.clientWidth) {
+      ov.hidden = false;
+      ov.textContent = (n.dry_run ? '試跑：' : '') + n.main;
+      ov.style.left = (100 * n.player[0] / n.frame_wh[0]) + '%';
+      ov.style.top = Math.max(4, 100 * (n.player[1] - 70) / n.frame_wh[1]) + '%';
+    } else ov.hidden = true;
+  } catch (e) {} finally { nowBusy = false; }
+}
+setInterval(pollNow, 200);
 
 // ---------- image ----------
 let imgTimer = null;

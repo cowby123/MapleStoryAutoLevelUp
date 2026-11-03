@@ -312,6 +312,32 @@ class WingpuControl:
             {"id": "mob_full", "cn": "全畫面找怪", "on": md.get("search") == "full"},
         ]
 
+    def now(self):
+        '''
+        Small, cheap snapshot for the page's 「目前狀態」 panel (polled ~5/s)
+        '''
+        bot = self.bot
+        kb = get_keyboard()
+        hm = bot.health_monitor
+        st = dict(getattr(bot, "now_state", {}) or {})
+        t = time.time()
+        if not self.running:
+            st = {"key": "paused", "main": "暫停中（不送任何按鍵）", "details": [], "t": st.get("t", t)}
+        hist = list(getattr(bot, "state_history", []))
+        return {
+            "t": round(t, 2),
+            "main": st.get("main"), "details": st.get("details", []),
+            "since_s": round(t - st.get("t", t), 1),
+            "running": self.running, "dry_run": kb.dry_run,
+            "pressed": sorted(kb.pressed),
+            "hp": round(hm.hp_percent, 1) if hm else None, "mp": round(hm.mp_percent, 1) if hm else None,
+            "exp": round(hm.exp_percent, 1) if hm else None,
+            "player": [int(v) for v in bot.loc_player],
+            "frame_wh": list(bot.frame_hw[::-1]) if getattr(bot, "frame_hw", None) else None,
+            "history": [{"t": time.strftime("%H:%M:%S", time.localtime(h["t"])), "dur": h["dur"], "main": h["main"]}
+                        for h in reversed(hist)],
+        }
+
     def buff_status(self):
         '''
         Per enabled buff: seconds until the next cast, seconds since the last
@@ -444,6 +470,8 @@ class WingpuControl:
                     self._file("latest_guest.jpg", "image/jpeg")
                 elif path == "/api/config":
                     self._json(control.webui.config())
+                elif path == "/now":
+                    self._json(control.now())
                 elif path in ("/decisions", "/api/decisions"):
                     q = urlparse(self.path).query
                     n = dict(kv.split("=", 1) for kv in q.split("&") if "=" in kv).get("n", "200")

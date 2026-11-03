@@ -34,6 +34,7 @@ from src.utils.resolution import (compute_scale, apply_scale, snapshot_base,
 from src.utils.nametag import NametagTracker, default_dir as nametag_default_dir
 from src.engine.HuntCycle import HuntCycle
 from src.utils.attack_shape import wedge_test, wedge_polygon
+from src.engine.explain import explain
 from src.input.KeyBoardController import KeyBoardController, press_key
 if is_mac():
     from src.input.GameWindowCapturorForMac import GameWindowCapturor
@@ -147,6 +148,9 @@ class MapleStoryAutoBot:
         # Decision log (instrumentation): why each frame's command is what it is
         self.dec = {"why": []}
         self.decisions = collections.deque(maxlen=200)
+        # Plain-language state for the web UI (explain.py): current + last 20 changes
+        self.now_state = {"key": "start", "main": "啟動中", "details": [], "t": time.time()}
+        self.state_history = collections.deque(maxlen=20)
         self.det_counts = {"frames": 0, "minimap": 0, "player_dot": 0, "player": 0,
                            "player_party_bar": 0, "player_nametag": 0,
                            "monsters": 0, "lost_paused": 0}
@@ -2001,6 +2005,7 @@ class MapleStoryAutoBot:
                 self.cmd_move_x = attack_direction
                 tgt = monster_left if attack_direction == "left" else monster_right
                 self.why("attack_target", dir=attack_direction,
+                         name=tgt.get("name") if tgt else None,
                          target=list(self.monster_box(tgt)) if tgt else None,
                          left=list(self.monster_box(monster_left)) if monster_left else None,
                          right=list(self.monster_box(monster_right)) if monster_right else None)
@@ -2043,7 +2048,7 @@ class MapleStoryAutoBot:
         if ready and attack_direction is not None:
             self.cmd_move_x, self.cmd_action = side, "attack"   # face the target (one frame) and shoot
             self.t_last_attack = now
-            self.why("attack_target", dir=side, mode="stand",
+            self.why("attack_target", dir=side, mode="stand", name=tgt.get("name") if tgt else None,
                      target=list(self.monster_box(tgt)) if tgt else None)
         else:
             self.cmd_move_x, self.cmd_action = "none", "none"   # stand still between shots
@@ -2110,8 +2115,24 @@ class MapleStoryAutoBot:
                 "keys": keys,
                 "why": self.dec.get("why", []),
             })
+            self.update_now_state(self.decisions[-1])
         except Exception as e: # instrumentation must never break the loop
             logger.debug(f"[record_decision] {e}")
+
+    def update_now_state(self, rec):
+        '''
+        Plain-language state (web UI 「目前狀態」) and the history of changes
+        '''
+        now = rec["t"]
+        key, main, details = explain(self, rec, now)
+        cur = self.now_state
+        if key != cur.get("key"):
+            if cur.get("key") not in (None, "start"):
+                self.state_history.append({"t": cur["t"], "dur": round(now - cur["t"], 1), "main": cur["main"]})
+            self.now_state = {"key": key, "main": main, "details": details, "t": now}
+        else:
+            # same state: keep its start time, refresh the words (seconds left etc.)
+            cur.update(main=main, details=details)
 
     def update_cmd_by_random(self):
         '''
