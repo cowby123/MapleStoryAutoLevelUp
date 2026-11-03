@@ -98,11 +98,33 @@ def explain(bot, rec, now):
 
     if kb is not None and not kb.is_enable:
         return "paused", "暫停中（不送任何按鍵）", details
+    if "curse_seen" in kinds:
+        details.insert(0, "畫面上有詛咒（經驗值、掉寶 0）" +
+                       ("，休息時間到了，照常練功" if kinds["curse_seen"].get("skip") else "，「解符文」沒開"))
     if "lost_pause" in kinds:
         what = "、".join({"minimap": "小地圖", "player": "角色"}.get(r, r) for r in kinds["lost_pause"].get("reason", []))
         t_seen = bot.t_player_seen if "player" in kinds["lost_pause"].get("reason", []) else bot.t_minimap_ok
         age = f" {now - t_seen:.1f} 秒" if t_seen else ""
         return "lost", f"偵測不到{what}{age}，已停手、放開所有鍵", details
+    if "rune_game" in kinds:
+        return "rune_game", "符文小遊戲：照箭頭按方向鍵", details
+    if "rune_seek" in kinds:
+        w = kinds["rune_seek"]
+        how = w.get("how")
+        where = {"left": "往左", "right": "往右", "down": "往下（下跳）", "up": "往上（按上）",
+                 "gone": "箭頭不見了，應該就在符文旁"}.get(how, "")
+        ang = f"，箭頭 {w['angle']:.0f}°" if w.get("angle") is not None else ""
+        main = f"詛咒中：跟著黃色箭頭找符文，{where}{ang}（{w.get('elapsed', 0):.0f} / {w.get('timeout', 120):.0f} 秒）"
+        if "rune_interact" in kinds:
+            details.insert(0, f"按「{kinds['rune_interact'].get('key')}」試著解放符文（第 {kinds['rune_interact'].get('n')} 次）")
+        return f"rune_seek_{how}", main, details
+    if "rune_to_safe" in kinds:
+        return "rune_to_safe", "找不到符文（逾時）→ 前往安全點", details
+    if "rune_rest" in kinds:
+        left = kinds["rune_rest"].get("left")
+        if left is not None:
+            return "rune_rest", f"詛咒中，休息 {_fmt_s(left)} 後再練功", details
+        return "rune_rest", "詛咒中（找不到符文），停手等詛咒解除（練功也沒經驗值）", details
     if "cycle" in kinds:
         hc = bot.hunt_cycle.status() if bot.hunt_cycle is not None else {}
         ph = kinds["cycle"].get("phase")

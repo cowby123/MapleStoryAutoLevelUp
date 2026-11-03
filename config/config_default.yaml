@@ -266,6 +266,23 @@ hunt_cycle:
   window_start: ""             # "HH:MM": only play between window_start and window_end ("" = always)
   window_end: ""
 
+rune_curse:
+  # 🌀 Rune curse (Artale): the purple banner 「必須解放符文才能解除詛咒!!」 = EXP / drops 0.
+  # The rune is often hidden by foreground grass and not on the minimap; the bot
+  # follows the yellow arrow the game draws next to the character.
+  enable: False                # ✅ find / solve the rune when cursed
+  seek_timeout: 120            # ⏱️ seconds to find the rune, then go to the safe spot (or rest in place)
+  interact_key: "up"           # ⌨️ the key that activates the rune (upstream: up)
+  interact_every_px: 40        # ↔️ press it after every this many px of walking (and when the arrow disappears)
+  interact_cooldown: 0.8       # ⏱️ seconds between presses
+  vertical_deg: 55             # 📐 arrow within this many degrees of straight up / down = change floors
+  resume: "curse_gone"         # after the timeout: "curse_gone" (rest while cursed) | "rest_time"
+  rest_minutes: [5, 10]        # ⏱️ "rest_time": rest this long, then hunt again (even if cursed)
+  check_interval: 0.5          # ⏱️ seconds between banner checks
+  capture_frames: True         # 📸 save frames while cursed (for development): /work/frames_rune/auto
+  capture_interval: 2.0        # ⏱️ at most one frame every this many seconds (0.5 s during the mini-game)
+  capture_max: 300             # 🗂️ stop after this many files
+
 detection_lost:
   # 🛑 Safety pause
   # If the minimap (normal mode) or the player (normal / patrol mode) is not found

@@ -310,6 +310,8 @@ class WingpuControl:
             {"id": "edge", "cn": "平台邊緣跳回", "on": g("edge_teleport", "enable", True)},
             {"id": "party_start", "cn": "開始時檢查組隊", "on": g("wingpu", "ensure_party_on_start")},
             {"id": "mob_full", "cn": "全畫面找怪", "on": md.get("search") == "full"},
+            {"id": "rune_curse", "cn": "解符文（詛咒時）", "on": g("rune_curse", "enable")},
+            {"id": "rune_capture", "cn": "詛咒時存畫面", "on": g("rune_curse", "capture_frames", True)},
         ]
 
     def now(self):

@@ -35,6 +35,7 @@ from src.utils.nametag import NametagTracker, default_dir as nametag_default_dir
 from src.engine.HuntCycle import HuntCycle
 from src.utils.attack_shape import wedge_test, wedge_polygon
 from src.engine.explain import explain
+from src.engine.RuneCurse import CurseDetector, find_guide_arrow, FrameCapture
 from src.input.KeyBoardController import KeyBoardController, press_key
 if is_mac():
     from src.input.GameWindowCapturorForMac import GameWindowCapturor
@@ -151,6 +152,13 @@ class MapleStoryAutoBot:
         # Plain-language state for the web UI (explain.py): current + last 20 changes
         self.now_state = {"key": "start", "main": "啟動中", "details": [], "t": time.time()}
         self.state_history = collections.deque(maxlen=20)
+        # Rune curse (rune_curse): banner detector, frame capture, rune-finding state
+        self.curse = CurseDetector()
+        self.cursed = False
+        self.t_curse_check = 0.0
+        self.t_cursed_since = 0.0
+        self.curse_capture = None
+        self.rune = {"phase": None}
         self.det_counts = {"frames": 0, "minimap": 0, "player_dot": 0, "player": 0,
                            "player_party_bar": 0, "player_nametag": 0,
                            "monsters": 0, "lost_paused": 0}
@@ -2317,6 +2325,176 @@ class MapleStoryAutoBot:
         self.monsters = []
         return True
 
+    def rune_cfg(self):
+        return self.cfg.get("rune_curse", {}) or {}
+
+    def check_curse(self):
+        '''
+        Is the curse banner up? (rate limited; also saves frames for fixtures
+        when rune_curse.capture_frames is on)
+        '''
+        rc = self.rune_cfg()
+        now = time.time()
+        if now - self.t_curse_check >= float(rc.get("check_interval", 0.5)):
+            self.t_curse_check = now
+            was = self.cursed
+            self.cursed = self.curse.detect(self.img_frame, self.scale)
+            if self.cursed and not was:
+                self.t_cursed_since = now
+                logger.info(f"[RuneCurse] curse banner (score {self.curse.last_score:.3f})")
+            elif was and not self.cursed:
+                logger.info(f"[RuneCurse] curse gone after {now - self.t_cursed_since:.0f} s")
+        if self.cursed and rc.get("capture_frames", True):
+            if self.curse_capture is None:
+                base = "/work" if os.path.isdir("/work") and os.access("/work", os.W_OK) else "."
+                self.curse_capture = FrameCapture(rc.get("capture_dir") or os.path.join(base, "frames_rune", "auto"),
+                                                  float(rc.get("capture_interval", 2.0)),
+                                                  int(rc.get("capture_max", 300)))
+            game = self.rune.get("phase") == "game"
+            self.curse_capture.interval = 0.5 if game else float(rc.get("capture_interval", 2.0))
+            self.curse_capture.maybe_save(self.frame, "game" if game else "curse",
+                                          {"player": list(self.loc_player), "phase": self.rune.get("phase"),
+                                           "arrow": self.rune.get("arrow"), "score": self.curse.last_score})
+
+    def run_rune_curse(self):
+        '''
+        rune_curse.enable: while the curse banner is up, stop hunting and find
+        the rune by the yellow guide arrow; press the interact key along the
+        way; solve the arrow mini-game; after seek_timeout go to the safe spot
+        (hunt_cycle safe spot / safe route) or rest in place, and stay there
+        while cursed (hunting gives 0 EXP). Returns True when it handled the
+        frame (hunting skipped).
+        '''
+        rc = self.rune_cfg()
+        r = self.rune
+        now = time.time()
+        if not rc.get("enable", False):
+            if self.cursed:
+                self.why("curse_seen")
+            r["phase"] = None
+            return False
+        hc = self.hunt_cycle
+        if hc is not None and hc.enabled and hc.phase != "hunt":
+            return False                       # the hunt cycle is resting anyway
+        resume = rc.get("resume", "curse_gone")
+        if not self.cursed and r.get("phase") is None:
+            r.pop("skip", None)                # next curse: find the rune again
+            return False
+        if r.get("skip"):
+            self.why("curse_seen", skip=True)  # rested after a timeout: hunting while cursed (resume rest_time)
+            return False
+        if not self.cursed and (r.get("phase") != "rest" or resume == "curse_gone"):
+            # solved (by us or by someone else): back to hunting
+            logger.info(f"[RuneCurse] curse gone: back to hunting (was {r.get('phase')})")
+            self.rune = {"phase": None}
+            self.kb.is_resting = self.kb.no_buffs = False
+            self.t_watch_dog = self.t_last_attack = now
+            self.loc_watch_dog = self.loc_player_global
+            self.why("rune_done")
+            return False
+        if r.get("phase") is None:
+            r.update(phase="seek", t0=now, t_interact=0.0, moved=0.0, last_x=self.loc_player[0],
+                     t_arrow=now, arrow=None, presses=0)
+            self.kb.set_command("none none none")
+            self.kb.release_all_key()
+            logger.info("[RuneCurse] curse: hunting paused, finding the rune")
+        self.monsters = []
+        self.kb.no_buffs = True
+        ph = r["phase"]
+        if ph in ("seek", "game"):
+            # the arrow mini-game?
+            if self.rune_solver is not None and self.rune_solver.is_in_rune_game(self.img_frame, self.img_frame_debug):
+                if ph != "game":
+                    logger.info("[RuneCurse] rune mini-game")
+                r["phase"] = "game"
+                self.kb.set_command("none none none")
+                self.why("rune_game")
+                self.rune_solver.solve_rune(self.img_frame, self.img_frame_debug)
+                return True
+            if ph == "game":
+                r["phase"] = "seek"
+            if now - r["t0"] > float(rc.get("seek_timeout", 120)):
+                self.kb.set_command("none none none")
+                self.kb.release_all_key()
+                spot = self.safe_spot()
+                r.update(phase="to_safe" if spot else "rest", t_rest=now, t_safe=now)
+                logger.warning(f"[RuneCurse] rune not found in {rc.get('seek_timeout', 120)} s: "
+                               f"{'going to the safe spot' if spot else 'resting in place'}")
+                return True
+            self.rune_seek(rc, r, now)
+            return True
+        if ph == "to_safe":
+            spot = self.safe_spot()
+            cmd = self.plan_to_safe(spot) if spot is not None else None
+            reached = spot is not None and self.at_safe_spot(spot)
+            if cmd is None or reached or now - r["t_safe"] > float(self.cfg.get("hunt_cycle", {}).get("safe_spot_timeout", 120)):
+                r.update(phase="rest", t_rest=now)
+                self.why("rune_rest", reached=reached)
+                self.kb.set_command("none none none")
+                return True
+            self.kb.is_resting = False
+            self.cmd_move_x, self.cmd_move_y, self.cmd_action = cmd.split()
+            self.kb.set_command(cmd)
+            self.why("rune_to_safe", plan=dict(self.safe_plan))
+            return True
+        # rest: hold still (potions still work) while cursed, or for the rest time
+        self.kb.is_resting = True
+        self.kb.set_command("none none none")
+        if resume == "rest_time":
+            lo, hi = (rc.get("rest_minutes") or (5, 10))[:2]
+            r.setdefault("rest_s", 60 * (lo + (hi - lo) * 0.5))
+            if now - r["t_rest"] > r["rest_s"]:
+                logger.info("[RuneCurse] rest time over: back to hunting (still cursed)" if self.cursed else
+                            "[RuneCurse] rest time over")
+                self.rune = {"phase": None, "skip": True}
+                self.kb.is_resting = self.kb.no_buffs = False
+                self.t_watch_dog = self.t_last_attack = now
+                return False
+        self.why("rune_rest", left=(r.get("rest_s", 0) - (now - r["t_rest"])) if resume == "rest_time" else None)
+        return True
+
+    def rune_seek(self, rc, r, now):
+        '''one frame of following the yellow arrow'''
+        from src.input.KeyBoardController import press_key as _press
+        ui_y = min(self.img_frame.shape[0], self.cfg["ui_coords"]["ui_y_start"])
+        arrow = find_guide_arrow(self.img_frame, self.loc_player, self.scale, ui_y)
+        r["moved"] += abs(self.loc_player[0] - r["last_x"])
+        r["last_x"] = self.loc_player[0]
+        key = rc.get("interact_key", "up")
+        press = False
+        if arrow is not None:
+            r["arrow"], r["t_arrow"] = arrow, now
+            a = arrow["angle"]
+            vert = float(rc.get("vertical_deg", 55))
+            if -180 + vert < a < -vert:        # mostly down
+                cmd = "none down jump"
+                how = "down"
+            elif vert < a < 180 - vert:        # mostly up
+                cmd = "none up none"
+                how = "up"
+                press = True                    # up is also the interact key: try it
+            else:
+                cmd = f"{'right' if abs(a) < 90 else 'left'} none none"
+                how = "left" if abs(a) >= 90 else "right"
+            if r["moved"] >= float(rc.get("interact_every_px", 40)) * self.scale:
+                press, r["moved"] = True, 0.0
+        else:
+            # arrow gone: probably standing at the rune
+            cmd, how = "none none none", "gone"
+            if r.get("arrow") is not None and now - r["t_arrow"] > 0.3:
+                press = True
+        if press and now - r["t_interact"] > float(rc.get("interact_cooldown", 0.8)):
+            r["t_interact"] = now
+            r["presses"] += 1
+            self.kb.set_command("none none none")
+            _press(key, 0.05)
+            self.why("rune_interact", key=key, n=r["presses"])
+        self.cmd_move_x, self.cmd_move_y, self.cmd_action = cmd.split()
+        self.kb.is_resting = False
+        self.kb.set_command(cmd)
+        self.why("rune_seek", how=how, angle=arrow["angle"] if arrow else None,
+                 elapsed=round(now - r["t0"], 1), timeout=float(rc.get("seek_timeout", 120)))
+
     def check_detection_lost(self):
         '''
         True while the bot must hold still because the minimap (normal mode) or
@@ -2331,7 +2509,10 @@ class MapleStoryAutoBot:
         mode = self.cfg["bot"]["mode"]
         now = time.time()
         reason = []
-        if mode == "normal" and now - self.t_minimap_ok > timeout:
+        # finding the rune: the curse banner may cover the minimap; only the player is needed
+        rune_seeking = self.rune.get("phase") in ("seek", "game", "rest") or             (self.cursed and self.rune_cfg().get("enable", False) and not self.rune.get("skip")
+             and self.rune.get("phase") is None)
+        if mode == "normal" and now - self.t_minimap_ok > timeout and not rune_seeking:
             reason.append("minimap")
         if mode in ("normal", "patrol") and now - self.t_player_seen > timeout:
             reason.append("player")
@@ -2560,6 +2741,10 @@ class MapleStoryAutoBot:
 
         self.profiler.mark("Player Location Detection")
 
+        # Curse banner (rune): checked every rune_curse.check_interval s, even with
+        # the feature off (status + optional frame capture)
+        self.check_curse()
+
         ##########################
         ### Detection-lost pause ###
         ##########################
@@ -2572,6 +2757,25 @@ class MapleStoryAutoBot:
                 cv2.putText(self.img_frame_debug,
                             f"PAUSED: {', '.join(self.lost_reason)} not found",
                             (10, sc(400, self.scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                self.update_info_on_img_frame_debug()
+                self.img_frame_debug_done = self.img_frame_debug
+            self.t_last_frame = time.time()
+            return 0
+
+        ###################
+        ### Rune curse ###
+        ###################
+        if self.run_rune_curse():
+            self.is_first_frame = False
+            if self.is_show_debug_window:
+                cv2.putText(self.img_frame_debug, f"RUNE: {self.rune.get('phase')}",
+                            (10, sc(400, self.scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+                arrow = self.rune.get("arrow")
+                if arrow:
+                    c = arrow["centre"]
+                    d = arrow["dir"]
+                    cv2.arrowedLine(self.img_frame_debug, c, (int(c[0] + 60 * d[0]), int(c[1] + 60 * d[1])),
+                                    (255, 0, 255), 3, tipLength=0.4)
                 self.update_info_on_img_frame_debug()
                 self.img_frame_debug_done = self.img_frame_debug
             self.t_last_frame = time.time()
