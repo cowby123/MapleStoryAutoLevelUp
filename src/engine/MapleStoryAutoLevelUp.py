@@ -2179,8 +2179,24 @@ class MapleStoryAutoBot:
         r = get_minimap_loc_size(self.img_frame, min_size)
         if r is not None:
             r = tuple(int(v) for v in r)
-        self.minimap_rect = r
-        return r
+            self.minimap_rect = r
+            self.minimap_partial = False
+            return r
+        # partly covered (event effects, the curse padlock): the minimap window
+        # does not move, so accept the last rect while its left frame edge and
+        # the left end of its top edge are still pure white
+        last = self.minimap_rect
+        self.minimap_partial = False
+        if last is not None:
+            x, y, w, h = last
+            img = self.img_frame
+            if x >= 1 and y >= 1 and y + h < img.shape[0]:
+                left = np.all(img[y:y + h, x - 1] == 255, axis=1).mean()
+                top = np.all(img[y - 1, x - 1:x - 1 + min(20, w)] == 255, axis=1).mean()
+                if left >= 0.9 and top >= 0.9:
+                    self.minimap_partial = True
+                    return last
+        return None
 
     def safe_spot(self):
         '''
@@ -2368,15 +2384,20 @@ class MapleStoryAutoBot:
         rc = self.rune_cfg()
         r = self.rune
         now = time.time()
-        if not rc.get("enable", False):
-            if self.cursed:
-                self.why("curse_seen")
-            r["phase"] = None
-            return False
+        stop = bool((self.cfg.get("curse") or {}).get("stop_while_cursed", True))
         hc = self.hunt_cycle
         if hc is not None and hc.enabled and hc.phase != "hunt":
             return False                       # the hunt cycle is resting anyway
-        resume = rc.get("resume", "curse_gone")
+        if not rc.get("enable", False):
+            # rune solving off: curse.stop_while_cursed -> stop (or go to the
+            # safe spot) until the curse is gone; otherwise just report it
+            if self.cursed and stop and r.get("phase") is None:
+                self.enter_curse_stop(r, now, "解符文沒開")
+            elif self.cursed and not stop:
+                self.why("curse_seen")
+                r["phase"] = None
+                return False
+        resume = rc.get("resume", "curse_gone") if rc.get("enable", False) else "curse_gone"
         if not self.cursed and r.get("phase") is None:
             r.pop("skip", None)                # next curse: find the rune again
             return False
@@ -2414,12 +2435,8 @@ class MapleStoryAutoBot:
             if ph == "game":
                 r["phase"] = "seek"
             if now - r["t0"] > float(rc.get("seek_timeout", 120)):
-                self.kb.set_command("none none none")
-                self.kb.release_all_key()
-                spot = self.safe_spot()
-                r.update(phase="to_safe" if spot else "rest", t_rest=now, t_safe=now)
-                logger.warning(f"[RuneCurse] rune not found in {rc.get('seek_timeout', 120)} s: "
-                               f"{'going to the safe spot' if spot else 'resting in place'}")
+                logger.warning(f"[RuneCurse] rune not found in {rc.get('seek_timeout', 120)} s")
+                self.enter_curse_stop(r, now, "找不到符文（逾時）")
                 return True
             self.rune_seek(rc, r, now)
             return True
@@ -2450,8 +2467,26 @@ class MapleStoryAutoBot:
                 self.kb.is_resting = self.kb.no_buffs = False
                 self.t_watch_dog = self.t_last_attack = now
                 return False
-        self.why("rune_rest", left=(r.get("rest_s", 0) - (now - r["t_rest"])) if resume == "rest_time" else None)
+        self.why("rune_rest", left=(r.get("rest_s", 0) - (now - r["t_rest"])) if resume == "rest_time" else None,
+                 since=now - (self.t_cursed_since or now), why=r.get("why", ""))
         return True
+
+    def enter_curse_stop(self, r, now, why):
+        '''
+        Stop hunting while cursed: curse.action "stop" (hold still, potions
+        on) or "safe_spot" (walk there first; no spot / route -> stop)
+        '''
+        self.kb.set_command("none none none")
+        self.kb.release_all_key()
+        if is_wingpu():
+            from src.input.WingpuKeyboard import get_keyboard
+            get_keyboard().release_all()
+        action = (self.cfg.get("curse") or {}).get("action", "stop")
+        spot = self.safe_spot() if action == "safe_spot" else None
+        r.update(phase="to_safe" if spot else "rest", t_rest=now, t_safe=now, why=why)
+        r.setdefault("t0", now)
+        logger.info(f"[RuneCurse] cursed ({why}): {'walking to the safe spot' if spot else 'holding still'} "
+                    "until the curse is gone")
 
     def rune_seek(self, rc, r, now):
         '''one frame of following the yellow arrow'''
@@ -2510,8 +2545,21 @@ class MapleStoryAutoBot:
         now = time.time()
         reason = []
         # finding the rune: the curse banner may cover the minimap; only the player is needed
-        rune_seeking = self.rune.get("phase") in ("seek", "game", "rest") or             (self.cursed and self.rune_cfg().get("enable", False) and not self.rune.get("skip")
-             and self.rune.get("phase") is None)
+        rune_seeking = self.rune.get("phase") in ("seek", "game", "rest") or \
+            (self.cursed and (self.rune_cfg().get("enable", False) or
+                              (self.cfg.get("curse") or {}).get("stop_while_cursed", True))
+             and not self.rune.get("skip") and self.rune.get("phase") is None)
+        # minimap hidden (event effects, the curse padlock) but the player is on
+        # screen: no stop for minimap_grace_s, only attacking in place (no route)
+        grace_s = float((self.cfg.get("detection_lost") or {}).get("minimap_grace_s", 10))
+        # (from the first frame without the minimap: the route needs it, so no
+        #  route moves even before the normal timeout)
+        self.minimap_grace = None
+        if mode == "normal" and not getattr(self, "minimap_ok_frame", True) and not rune_seeking and \
+                grace_s > 0 and now - self.t_player_seen <= timeout and self.t_minimap_ok and \
+                now - self.t_minimap_ok <= grace_s:
+            self.minimap_grace = now - self.t_minimap_ok
+            rune_seeking = True
         if mode == "normal" and now - self.t_minimap_ok > timeout and not rune_seeking:
             reason.append("minimap")
         if mode in ("normal", "patrol") and now - self.t_player_seen > timeout:
@@ -2703,6 +2751,7 @@ class MapleStoryAutoBot:
         # Get player location on minimap (exact colour on the live minimap,
         # then converted to route-map pixels)
         loc_player_minimap = None
+        self.minimap_ok_frame = False
         if minimap_result is not None:
             loc_player_minimap = get_player_location_on_minimap(
                                     self.img_minimap,
@@ -2716,6 +2765,7 @@ class MapleStoryAutoBot:
                                        int(round(loc_player_minimap[1] / mm)))
             self.det_counts["player_dot"] += 1
             self.t_minimap_ok = time.time()
+            self.minimap_ok_frame = True
 
         # Get other player location on minimap
         loc_other_players = get_all_other_player_locations_on_minimap(
@@ -2757,6 +2807,32 @@ class MapleStoryAutoBot:
                 cv2.putText(self.img_frame_debug,
                             f"PAUSED: {', '.join(self.lost_reason)} not found",
                             (10, sc(400, self.scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                self.update_info_on_img_frame_debug()
+                self.img_frame_debug_done = self.img_frame_debug
+            self.t_last_frame = time.time()
+            return 0
+
+        #################################
+        ### Minimap hidden: attack only ###
+        #################################
+        if getattr(self, "minimap_grace", None) is not None and not self.cursed:
+            self.cmd_move_x = self.cmd_move_y = self.cmd_action = "none"
+            if self.cfg["bot"]["mode"] == "normal":
+                dza = self.cfg["directional_attack"].get("dead_zone_action", "ignore")
+                self.cfg["directional_attack"]["dead_zone_action"] = "ignore"   # no moving away
+                try:
+                    self.update_cmd_by_mob_detection()
+                finally:
+                    self.cfg["directional_attack"]["dead_zone_action"] = dza
+            if self.cmd_action != "attack":
+                self.cmd_move_x = "none"                                      # stand; only turn to shoot
+            self.cmd_move_y = "none"
+            self.kb.set_command(f"{self.cmd_move_x} {self.cmd_move_y} {self.cmd_action}")
+            self.why("minimap_grace", age=round(self.minimap_grace, 1),
+                     limit=float((self.cfg.get("detection_lost") or {}).get("minimap_grace_s", 10)),
+                     partial=getattr(self, "minimap_partial", False))
+            self.is_first_frame = False
+            if self.is_show_debug_window:
                 self.update_info_on_img_frame_debug()
                 self.img_frame_debug_done = self.img_frame_debug
             self.t_last_frame = time.time()

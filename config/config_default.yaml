@@ -266,6 +266,13 @@ hunt_cycle:
   window_start: ""             # "HH:MM": only play between window_start and window_end ("" = always)
   window_end: ""
 
+curse:
+  # 🛑 While the rune curse is on (EXP / drops 0): stop hunting - no attacks,
+  # movement or buffs; potions stay on. Back to hunting when the banner is gone.
+  # With rune_curse.enable the bot first tries to find the rune.
+  stop_while_cursed: True
+  action: "stop"               # "stop": hold still | "safe_spot": walk to the safe spot first (falls back to stop)
+
 rune_curse:
   # 🌀 Rune curse (Artale): the purple banner 「必須解放符文才能解除詛咒!!」 = EXP / drops 0.
   # The rune is often hidden by foreground grass and not on the minimap; the bot
@@ -290,6 +297,8 @@ detection_lost:
   # potions, no buffs, no watchdog actions) until both are found again.
   enable: True
   timeout: 3.0         # ⏱️ seconds
+  minimap_grace_s: 10  # ⏱️ minimap hidden (event effects, curse padlock) but the player found:
+                       #    attack in place (no route) this long before stopping
 
 rune_warning_cn:
   # ⚠️ Rune Warning Detection(Chinese)

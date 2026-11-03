@@ -119,12 +119,19 @@ def explain(bot, rec, now):
             details.insert(0, f"按「{kinds['rune_interact'].get('key')}」試著解放符文（第 {kinds['rune_interact'].get('n')} 次）")
         return f"rune_seek_{how}", main, details
     if "rune_to_safe" in kinds:
-        return "rune_to_safe", "找不到符文（逾時）→ 前往安全點", details
+        return "rune_to_safe", "詛咒中：前往安全點，到了就停手", details
     if "rune_rest" in kinds:
-        left = kinds["rune_rest"].get("left")
+        w = kinds["rune_rest"]
+        left = w.get("left")
         if left is not None:
             return "rune_rest", f"詛咒中，休息 {_fmt_s(left)} 後再練功", details
-        return "rune_rest", "詛咒中（找不到符文），停手等詛咒解除（練功也沒經驗值）", details
+        since = w.get("since") or 0
+        why = w.get("why") or ""
+        return "rune_rest", f"詛咒中：停止練功，等詛咒解除（已 {_fmt_s(since)}）" + (f"　{why}" if why else ""), details
+    if "minimap_grace" in kinds:
+        w = kinds["minimap_grace"]
+        return "minimap_grace", (f"小地圖被擋住 {w.get('age', 0):.1f} 秒：只原地攻擊"
+                                 f"（{w.get('limit', 10):g} 秒後停手）"), details
     if "cycle" in kinds:
         hc = bot.hunt_cycle.status() if bot.hunt_cycle is not None else {}
         ph = kinds["cycle"].get("phase")

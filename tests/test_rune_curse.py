@@ -70,7 +70,7 @@ def test_mode():
     tmp = tempfile.mkdtemp()
     try:
         T.OVERRIDES.clear()
-        T.OVERRIDES.update({"rune_curse.enable": True, "rune_curse.seek_timeout": 1.0,
+        T.OVERRIDES.update({"rune_curse.enable": True, "rune_curse.seek_timeout": 1.0, "curse.action": "stop",
                             "rune_curse.check_interval": 0.0, "rune_curse.capture_dir": tmp,
                             "rune_curse.capture_interval": 0.2, "rune_curse.capture_max": 5})
         bot = T.make_bot("wingpu_maple")
@@ -112,17 +112,93 @@ def test_mode():
         print(f"  frames saved while cursed: {len(files)} (cap 5)")
         # feature off: no rune mode, capture still works
         T.OVERRIDES["rune_curse.enable"] = False
+        T.OVERRIDES["curse.stop_while_cursed"] = False
         bot2 = T.make_bot("wingpu_maple")
         bot2.capture.set_guest(cv2.imread(CURSE[0]))
         bot2.dec = {"why": []}
         bot2.run_once()
         assert bot2.rune["phase"] is None and bot2.cursed
-        print("  feature off: banner seen, nothing done (status shows it)")
+        print("  rune solving and curse stop off: banner seen, nothing done (status shows it)")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_curse_stop_default():
+    '''rune solving off (default), curse.stop_while_cursed on (default): hold still until the curse is gone'''
+    if not CURSE or not CLEAN:
+        print("  (no fixtures, skipped)")
+        return
+    T.OVERRIDES.clear()
+    T.OVERRIDES.update({"rune_curse.check_interval": 0.0, "rune_curse.capture_frames": False})
+    bot = T.make_bot("wingpu_maple")
+    assert bot.cfg["curse"]["stop_while_cursed"] is True and bot.cfg["rune_curse"]["enable"] is False
+
+    def frame(path):
+        bot.capture.set_guest(cv2.imread(path))
+        bot.dec = {"why": []}
+        bot.run_once()
+        bot.record_decision(0)
+        return bot.now_state["main"]
+
+    frame(CLEAN[45])
+    assert bot.rune["phase"] is None
+    main = frame(CURSE[0])
+    assert bot.rune["phase"] == "rest" and bot.kb.is_resting and bot.kb.cmd == "none none none", bot.rune
+    assert main.startswith("詛咒中：停止練功，等詛咒解除"), main
+    assert not bot.is_lost_paused                       # the padlock covers the minimap: not needed now
+    frame(CURSE[3])
+    assert bot.rune["phase"] == "rest"
+    frame(CLEAN[46])
+    assert bot.rune["phase"] is None and not bot.kb.is_resting
+    print("  curse (rune solving off): stop, no keys; curse gone: hunting again")
+    # option off: the bot keeps hunting (and reports the curse)
+    bot.cfg["curse"]["stop_while_cursed"] = False
+    frame(CURSE[0])
+    assert bot.rune["phase"] is None
+    print("  stop_while_cursed off: keeps going, status shows the curse")
+
+
+def test_minimap_occluded():
+    '''the curse padlock / event effects cover part of the minimap'''
+    if not CURSE or not CLEAN:
+        print("  (no fixtures, skipped)")
+        return
+    T.OVERRIDES.clear()
+    T.OVERRIDES.update({"curse.stop_while_cursed": False, "rune_curse.capture_frames": False,
+                        "detection_lost.minimap_grace_s": 1.0, "rune_curse.check_interval": 0.0})
+    bot = T.make_bot("wingpu_maple")
+    # partial match: last known rect + intact left / top-left frame edge (curse frames: padlock on the right half)
+    bot.capture.set_guest(cv2.imread(CURSE[0]))
+    bot.img_frame = bot.capture.get_frame()
+    bot.minimap_rect = (214, 167, 219, 108)
+    assert bot.find_minimap() == (214, 167, 219, 108) and bot.minimap_partial
+    print("  partly covered minimap (curse padlock): last rect kept (left / top edge still white)")
+    # grace: minimap gone, player found -> attack in place only; after the grace -> normal stop
+    clean = cv2.imread(CLEAN[45])
+    bot.capture.set_guest(clean)
+    bot.dec = {"why": []}
+    bot.run_once()
+    assert bot.det_counts["player_dot"] > 0
+    covered = clean.copy()
+    covered[0:260, 0:300] = clean[300:560, 0:300]      # "event effect" over the minimap
+    bot.minimap_rect = None
+    bot.capture.set_guest(covered)
+    bot.t_minimap_ok = time.time() - 0.5
+    bot.t_player_seen = time.time()
+    bot.dec = {"why": []}
+    bot.run_once()
+    bot.record_decision(0)
+    assert not bot.is_lost_paused and bot.minimap_grace is not None, (bot.lost_reason, bot.minimap_grace)
+    assert bot.kb.cmd.split()[2] in ("none", "attack") and bot.kb.cmd.split()[1] == "none", bot.kb.cmd
+    print(f"  minimap hidden 0.5 s, player found: 「{bot.now_state['main']}」, kb '{bot.kb.cmd}'")
+    bot.t_minimap_ok = time.time() - 4.0                  # past the grace (1 s here) and the 3 s timeout
+    bot.dec = {"why": []}
+    bot.run_once()
+    assert bot.is_lost_paused and "minimap" in bot.lost_reason
+    print("  past the grace: normal stop (minimap)")
+
+
 if __name__ == "__main__":
-    for name in ("test_banner", "test_arrow", "test_mode"):
+    for name in ("test_banner", "test_arrow", "test_mode", "test_curse_stop_default", "test_minimap_occluded"):
         globals()[name]()
         print("ok  ", name)
