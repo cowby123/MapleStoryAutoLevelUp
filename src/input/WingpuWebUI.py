@@ -79,7 +79,6 @@ FIELDS = [
     ("attack", "mode", "choice", ["single", "aoe", "auto"]),
     ("attack", "aoe_min_count", "int", (1, 30)),
     ("attack", "aoe_cooldown", "num", (0, 120)),
-    ("attack", "aoe_mp_floor", "num", (0, 100)),
     ("attack", "aoe_shape", "choice", ["box", "front", "wedge"]),
     ("attack", "aoe_front_start", "int", (0, 1000)),
     ("attack", "aoe_front_range", "int", (10, 1500)),

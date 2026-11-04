@@ -2108,7 +2108,7 @@ class MapleStoryAutoBot:
         Cast the AoE skill when enough monsters are in its area.
         Returns "fired", "wait" (群體: cooldown, stand), "none" (too few),
         "single" (自動: too few or AoE cooling down -> single attack),
-        "fallback" (no AoE key / MP under the floor -> single attack).
+        "fallback" (no AoE key -> single attack).
         '''
         a = self.cfg.get("attack") or {}
         c = getattr(self, "aoe_count", None) or {"left": 0, "right": 0, "directional": False}
@@ -2129,12 +2129,6 @@ class MapleStoryAutoBot:
             return "none" if mode == "aoe" else "single"
         if not key:
             self.why("aoe_count", reason="no_key", **info)
-            return "fallback"
-        floor = float(a.get("aoe_mp_floor", 0) or 0)
-        hm = self.health_monitor
-        mp = getattr(hm, "mp_percent", None) if hm is not None else None
-        if floor > 0 and mp is not None and mp < floor:
-            self.why("aoe_count", reason="mp", mp=round(float(mp), 1), floor=floor, **info)
             return "fallback"
         now = time.time()
         cd = float(a.get("aoe_cooldown", 1.0))

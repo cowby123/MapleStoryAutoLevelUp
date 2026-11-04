@@ -1,6 +1,6 @@
 '''
 attack.mode 單體 / 群體 / 自動 (src/engine/AoeAttack.py + MapleStoryAutoBot.try_aoe):
-synthetic boxes, the decision rules (threshold, cooldown, MP floor, facing,
+synthetic boxes, the decision rules (threshold, cooldown, facing,
 stand_while_target), and the count on the hand-labelled cloud_balcony frames.
 
   python tests/test_aoe_attack.py
@@ -91,11 +91,10 @@ def test_decisions():
     assert decide(bot, four) == "single"          # cooling down: single meanwhile
     bot.t_last_aoe = 0
     assert decide(bot, one) == "single"           # 1 < 3
-    # MP floor
-    bot.health_monitor.mp_percent = 10
-    bot.cfg["attack"]["aoe_mp_floor"] = 30
+    # no AoE key: single attack
+    bot.cfg["key"]["aoe_skill"] = ""
     assert decide(bot, four) == "fallback"
-    bot.cfg["attack"]["aoe_mp_floor"] = 0
+    bot.cfg["key"]["aoe_skill"] = "q"
     # 群體 only
     bot = make("aoe", aoe_cooldown=1.0, aoe_count_window_s=0.0)
     assert decide(bot, one) == "fired"

@@ -178,8 +178,6 @@ def explain(bot, rec, now):
             if aoe.get("mode") == "aoe":
                 return "aoe_wait", f"群體技能冷卻中，再 {aoe.get('left', 0):.1f} 秒（範圍內 {aoe.get('n')} 隻）", details
             aoe_pre = f"群體技能冷卻中（範圍內 {aoe.get('n')} 隻），先單體攻擊"
-        elif r == "mp":
-            aoe_pre = f"MP {aoe.get('mp')}% 低於 {aoe.get('floor'):g}%，不用群體技能，改單體攻擊"
         elif r == "no_key":
             aoe_pre = "沒設群體技能鍵，改單體攻擊"
         if aoe_pre and "attack_target" not in kinds:
