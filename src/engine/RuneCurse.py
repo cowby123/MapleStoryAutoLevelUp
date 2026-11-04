@@ -127,6 +127,11 @@ def find_guide_arrow(frame, player, s, ui_y=None):
         mid = (proj.max() + proj.min()) / 2
         d = ax * (1 if mid < 0 else -1)    # the heavier head is on the centroid's side
         cx, cy = float(c[0] + x0), float(c[1] + y0)
+        # the guide arrow is drawn beside / below the character (2026-11-03: 90 px
+        # left, 82 below the player position; 2026-11-04: 70-110 px aside, 23-27
+        # below); yellow blocks above it and the character's own bow are not it
+        if cy < py - 5 * s or abs(cx - px) < 45 * s / CAPTURE_SCALE:
+            continue
         # the arrow is drawn on the rune's side of the character: agree with that
         to_arrow = np.array([cx - px, cy - py])
         if np.linalg.norm(to_arrow) > 5 and float(np.dot(d, to_arrow)) < 0:

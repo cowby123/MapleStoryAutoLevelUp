@@ -106,8 +106,16 @@ def explain(bot, rec, now):
         t_seen = bot.t_player_seen if "player" in kinds["lost_pause"].get("reason", []) else bot.t_minimap_ok
         age = f" {now - t_seen:.1f} 秒" if t_seen else ""
         return "lost", f"偵測不到{what}{age}，已停手、放開所有鍵", details
+    mg = getattr(bot, "minigame", None)
     if "rune_game" in kinds:
-        return "rune_game", "符文小遊戲：照箭頭按方向鍵", details
+        w = kinds["rune_game"]
+        seq = " ".join({"up": "↑", "right": "→", "down": "↓", "left": "←"}[d] for d in w.get("seq", []))
+        n = (w.get("total") or 0) - len(w.get("seq", [])) + 1
+        return "rune_game", f"符文小遊戲：{seq}（第 {n} 個）" + (f"，重試 {w['tries']} 次" if w.get("tries") else ""), details
+    if mg:
+        from src.engine.RuneGame import sequence_text
+        n = (getattr(bot, "mg_total", 0) or len(mg)) - len(mg) + 1
+        details.insert(0, f"畫面上有符文小遊戲：{sequence_text(mg)}（第 {n} 個；bot 沒有在解）")
     if "rune_seek" in kinds:
         w = kinds["rune_seek"]
         how = w.get("how")

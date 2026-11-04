@@ -86,6 +86,8 @@ FIELDS = [
     ("rune_curse", "interact_cooldown", "num", (0.2, 10)),
     ("rune_curse", "resume", "choice", ["curse_gone", "rest_time"]),
     ("rune_curse", "rest_minutes", "range", (0.5, 600)),
+    ("rune_curse", "minigame_wait", "num", (0.2, 3)),
+    ("rune_curse", "minigame_retries", "int", (0, 10)),
     ("rune_curse", "capture_frames", "bool", None),
     ("rune_curse", "capture_interval", "num", (0.5, 60)),
     ("rune_curse", "capture_max", "int", (0, 5000)),

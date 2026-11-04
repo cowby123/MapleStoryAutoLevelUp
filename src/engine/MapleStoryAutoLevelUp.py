@@ -36,6 +36,7 @@ from src.engine.HuntCycle import HuntCycle
 from src.utils.attack_shape import wedge_test, wedge_polygon
 from src.engine.explain import explain
 from src.engine.RuneCurse import CurseDetector, find_guide_arrow, FrameCapture
+from src.engine.RuneGame import read_minigame, sequence_text
 from src.input.KeyBoardController import KeyBoardController, press_key
 if is_mac():
     from src.input.GameWindowCapturorForMac import GameWindowCapturor
@@ -159,6 +160,11 @@ class MapleStoryAutoBot:
         self.t_cursed_since = 0.0
         self.curse_capture = None
         self.rune = {"phase": None}
+        # Rune mini-game (read every 0.3 s, whatever the bot is doing)
+        self.minigame = []          # active icons, left to right
+        self.mg_total = 0           # icons when the game started (to count the solved ones)
+        self.t_mg_check = 0.0
+        self.t_mg_seen = 0.0
         self.det_counts = {"frames": 0, "minimap": 0, "player_dot": 0, "player": 0,
                            "player_party_bar": 0, "player_nametag": 0,
                            "monsters": 0, "lost_paused": 0}
@@ -2360,17 +2366,37 @@ class MapleStoryAutoBot:
                 logger.info(f"[RuneCurse] curse banner (score {self.curse.last_score:.3f})")
             elif was and not self.cursed:
                 logger.info(f"[RuneCurse] curse gone after {now - self.t_cursed_since:.0f} s")
-        if self.cursed and rc.get("capture_frames", True):
+        # the arrow mini-game panel (also when the player solves it by hand)
+        if now - self.t_mg_check >= 0.3:
+            self.t_mg_check = now
+            icons = read_minigame(self.img_frame, self.scale)
+            if icons:
+                if not self.minigame and now - self.t_mg_seen > 2.0:
+                    self.mg_total = len(icons)
+                    logger.info(f"[RuneGame] mini-game: {sequence_text(icons)}")
+                self.mg_total = max(self.mg_total, len(icons))
+                self.t_mg_seen = now
+            elif self.minigame:
+                logger.info("[RuneGame] mini-game panel gone")
+            self.minigame = icons
+        game_up = bool(self.minigame)
+        if (self.cursed or game_up) and rc.get("capture_frames", True):
             if self.curse_capture is None:
                 base = "/work" if os.path.isdir("/work") and os.access("/work", os.W_OK) else "."
                 self.curse_capture = FrameCapture(rc.get("capture_dir") or os.path.join(base, "frames_rune", "auto"),
                                                   float(rc.get("capture_interval", 2.0)),
                                                   int(rc.get("capture_max", 300)))
-            game = self.rune.get("phase") == "game"
-            self.curse_capture.interval = 0.5 if game else float(rc.get("capture_interval", 2.0))
-            self.curse_capture.maybe_save(self.frame, "game" if game else "curse",
+            self.curse_capture.interval = 0.4 if game_up else float(rc.get("capture_interval", 2.0))
+            arrow = self.rune.get("arrow")
+            if arrow is None and self.cursed:
+                # for the record also when not seeking (the arrow is drawn anyway)
+                ui_y = min(self.img_frame.shape[0], self.cfg["ui_coords"]["ui_y_start"])
+                arrow = find_guide_arrow(self.img_frame, self.loc_player, self.scale, ui_y)
+            self.curse_capture.maybe_save(self.frame, "game" if game_up else "curse",
                                           {"player": list(self.loc_player), "phase": self.rune.get("phase"),
-                                           "arrow": self.rune.get("arrow"), "score": self.curse.last_score})
+                                           "arrow": arrow, "score": self.curse.last_score,
+                                           "minigame": [c["dir"] for c in self.minigame],
+                                           "minigame_total": self.mg_total if game_up else None})
 
     def run_rune_curse(self):
         '''
@@ -2424,15 +2450,15 @@ class MapleStoryAutoBot:
         ph = r["phase"]
         if ph in ("seek", "game"):
             # the arrow mini-game?
-            if self.rune_solver is not None and self.rune_solver.is_in_rune_game(self.img_frame, self.img_frame_debug):
+            if self.minigame:
                 if ph != "game":
-                    logger.info("[RuneCurse] rune mini-game")
+                    logger.info(f"[RuneCurse] rune mini-game: {sequence_text(self.minigame)}")
+                    r.update(mg_last_n=None, mg_tries=0, t_mg_press=0.0)
                 r["phase"] = "game"
                 self.kb.set_command("none none none")
-                self.why("rune_game")
-                self.rune_solver.solve_rune(self.img_frame, self.img_frame_debug)
+                self.solve_minigame(rc, r, now)
                 return True
-            if ph == "game":
+            if ph == "game" and now - self.t_mg_seen > 1.0:
                 r["phase"] = "seek"
             if now - r["t0"] > float(rc.get("seek_timeout", 120)):
                 logger.warning(f"[RuneCurse] rune not found in {rc.get('seek_timeout', 120)} s")
@@ -2488,6 +2514,34 @@ class MapleStoryAutoBot:
         logger.info(f"[RuneCurse] cursed ({why}): {'walking to the safe spot' if spot else 'holding still'} "
                     "until the curse is gone")
 
+    def solve_minigame(self, rc, r, now):
+        '''
+        One arrow at a time: press the first active icon's direction, then
+        wait for a fresh read (>= 0.45 s) that shows one icon fewer; retry the
+        same icon up to minigame_retries times, then give up (curse stop).
+        '''
+        from src.input.KeyBoardController import press_key as _press
+        icons = self.minigame
+        n = len(icons)
+        if r.get("mg_last_n") is not None and n < r["mg_last_n"]:
+            r["mg_tries"] = 0                       # the last press worked
+        wait = float(rc.get("minigame_wait", 0.45))
+        if now - r.get("t_mg_press", 0.0) >= wait and \
+                (r.get("mg_last_n") is None or n < r["mg_last_n"] or now - r["t_mg_press"] >= 1.2):
+            if r.get("mg_last_n") == n and r.get("mg_tries", 0) >= int(rc.get("minigame_retries", 2)):
+                logger.warning(f"[RuneGame] {icons[0]['dir']} did not register after "
+                               f"{r['mg_tries']} tries: giving up")
+                self.enter_curse_stop(r, now, "符文小遊戲失敗")
+                return
+            if r.get("mg_last_n") == n:
+                r["mg_tries"] = r.get("mg_tries", 0) + 1
+            key = icons[0]["dir"]
+            _press(key, 0.05)
+            r.update(mg_last_n=n, t_mg_press=now)
+            logger.info(f"[RuneGame] press {key} ({self.mg_total - n + 1}/{self.mg_total})")
+        self.why("rune_game", seq=[c["dir"] for c in icons], total=self.mg_total,
+                 tries=r.get("mg_tries", 0))
+
     def rune_seek(self, rc, r, now):
         '''one frame of following the yellow arrow'''
         from src.input.KeyBoardController import press_key as _press
@@ -2501,16 +2555,23 @@ class MapleStoryAutoBot:
             r["arrow"], r["t_arrow"] = arrow, now
             a = arrow["angle"]
             vert = float(rc.get("vertical_deg", 55))
-            if -180 + vert < a < -vert:        # mostly down
-                cmd = "none down jump"
+            if -180 + vert < a < -vert:
                 how = "down"
-            elif vert < a < 180 - vert:        # mostly up
-                cmd = "none up none"
+            elif vert < a < 180 - vert:
                 how = "up"
+            else:
+                how = "left" if abs(a) >= 90 else "right"
+            # act on the majority of the last 5 reads (a yellow block can pass for an arrow once)
+            votes = r.setdefault("votes", collections.deque(maxlen=5))
+            votes.append(how)
+            how = collections.Counter(votes).most_common(1)[0][0]
+            if how == "down":
+                cmd = "none down jump"
+            elif how == "up":
+                cmd = "none up none"
                 press = True                    # up is also the interact key: try it
             else:
-                cmd = f"{'right' if abs(a) < 90 else 'left'} none none"
-                how = "left" if abs(a) >= 90 else "right"
+                cmd = f"{how} none none"
             if r["moved"] >= float(rc.get("interact_every_px", 40)) * self.scale:
                 press, r["moved"] = True, 0.0
         else:

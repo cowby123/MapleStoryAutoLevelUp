@@ -286,6 +286,8 @@ rune_curse:
   resume: "curse_gone"         # after the timeout: "curse_gone" (rest while cursed) | "rest_time"
   rest_minutes: [5, 10]        # ⏱️ "rest_time": rest this long, then hunt again (even if cursed)
   check_interval: 0.5          # ⏱️ seconds between banner checks
+  minigame_wait: 0.45          # ⏱️ after each arrow key: wait at least this long for the icon to fade
+  minigame_retries: 2          # 🔁 press the same arrow again at most this many times, then give up
   capture_frames: True         # 📸 save frames while cursed (for development): /work/frames_rune/auto
   capture_interval: 2.0        # ⏱️ at most one frame every this many seconds (0.5 s during the mini-game)
   capture_max: 300             # 🗂️ stop after this many files
