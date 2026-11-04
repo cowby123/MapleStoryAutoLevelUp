@@ -36,6 +36,8 @@ label.f span.h{color:var(--mut);font-size:12px}
 input,select{font:inherit;padding:7px 8px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--fg);min-height:38px;width:100%}
 input[type=checkbox]{width:auto;min-height:auto}
 .err{color:var(--bad);font-size:12px}
+.warn{color:var(--warn);font-size:12px}
+.buffrow .bw{grid-column:1/-1}
 code{overflow-wrap:anywhere}
 code.key{display:none;font-size:11px;font-weight:400;color:var(--mut);word-break:break-all}
 body.adv code.key{display:inline}
@@ -73,25 +75,54 @@ details>summary{cursor:pointer;font-weight:600}
 .ntwrap img{display:block;max-width:100%;height:auto}
 .ntwrap canvas{position:absolute;left:0;top:0;width:100%;height:100%;cursor:crosshair}
 img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);background:#000}
+/* Fixed-size boxes: content that changes every second never moves the page
+   (the 目前狀態 panel, header, feature chips, banner, picture, tables) */
+:root{--lh:1.45em}
+.banner{height:42px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.banner.dry{background:var(--card);color:var(--mut);font-weight:400;border-bottom:1px solid var(--line)}
+header{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;height:46px;scrollbar-width:none}
+header::-webkit-scrollbar{display:none}
+header>*{flex:none}
+header h1{white-space:nowrap}
+#feat{height:32px;white-space:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+#feat::-webkit-scrollbar{display:none}
+#nowp{display:grid;grid-template-rows:22px 32px calc(2 * 1.4em) 26px 22px;row-gap:2px;overflow:hidden}
+#nowp>*{min-width:0;overflow:hidden}
+#now-dry{font-size:14px;line-height:22px;white-space:nowrap;text-overflow:ellipsis}
+#now-main{line-height:32px;white-space:nowrap;text-overflow:ellipsis;cursor:pointer}
+#now-det{line-height:1.4em;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;word-break:break-all}
+#now-keyrow,#now-barrow{display:flex;align-items:center;gap:4px;white-space:nowrap;line-height:22px}
+img.live{aspect-ratio:1366/768;object-fit:contain}
+.fix{overflow:auto}
+#st{table-layout:fixed}
+#st td{height:calc(2 * 1.45em + 7px)}
+#st td>div{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;word-break:break-all}
+#bars{height:66px}
+#recent{height:220px;max-height:none}
+#hist-box{height:260px;overflow:auto}
+#now-hist{max-height:none}
+#buffst,#cyclest{table-layout:fixed}
+#buffst td,#cyclest td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+section h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
 <body>
-<div id="live-banner" class="banner" hidden>⚠ 真的輸入中：練功程式正在對遊戲按鍵。要停：按「暫停」或把下面的開關切回模擬。</div>
+<div id="live-banner" class="banner dry">模擬模式：不送任何按鍵到遊戲</div>
 <header>
   <h1>楓之谷自動練功</h1>
   <span id="b-run" class="badge">讀取中…</span>
-  <span id="b-lost" class="badge" hidden></span>
+  <span id="b-lost" class="badge" style="visibility:hidden"></span>
   <span id="b-input" class="badge">模擬（不送輸入）</span>
-  <span id="b-pending" class="badge b-warn" hidden>有設定要重新啟動後才生效</span>
-  <span id="b-cycle" class="badge" hidden></span>
+  <span id="b-pending" class="badge b-warn" style="visibility:hidden">有設定要重新啟動後才生效</span>
+  <span id="b-cycle" class="badge" style="visibility:hidden"></span>
 </header>
 <div id="feat"><span class="msg">已啟用功能：</span><span id="feat-list">…</span></div>
 <div id="nowp">
-  <div id="now-dry" hidden>試跑：以下動作不會真的送出</div>
-  <div id="now-main">…</div>
+  <div id="now-dry">&nbsp;</div>
+  <div id="now-main" title="">…</div>
   <div id="now-det"></div>
-  <div class="row" style="margin-top:4px"><span class="msg">按著的鍵：</span><span id="now-keys"></span>
-    <span class="msg" style="margin-left:12px">血 / 魔 / 經驗（HP / MP / EXP）：</span><span id="now-bars"></span></div>
+  <div id="now-keyrow"><span class="msg">按著的鍵：</span><span id="now-keys"></span></div>
+  <div id="now-barrow"><span class="msg">血 / 魔 / 經驗（HP / MP / EXP）：</span><span id="now-bars"></span></div>
 </div>
 <main>
   <section>
@@ -142,7 +173,7 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
 
   <section class="wide">
     <h2>最近的狀態變化 <span class="msg">（最新在上；持續多久）</span></h2>
-    <table id="now-hist"></table>
+    <div id="hist-box"><table id="now-hist"></table></div>
   </section>
 
   <section class="wide">
@@ -157,7 +188,7 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
 
   <section class="wide" id="sec-cycle">
     <h2>練功 / 休息循環</h2>
-    <table id="cyclest" class="cycle"></table>
+    <div id="cycle-box" style="height:250px;overflow:auto"><table id="cyclest" class="cycle"></table></div>
   </section>
 
   <section class="wide" id="sec-rp" hidden>
@@ -506,7 +537,7 @@ async function api(path, body) {
 async function post(p) { await api(p, {}); poll(); }
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
-function rows(t, list) { t.innerHTML = list.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join(''); }
+function rows(t, list) { t.innerHTML = list.map(([k, v]) => `<tr><td>${esc(k)}</td><td><div title="${esc(String(v).replace(/<[^>]*>/g, ''))}">${v}</div></td></tr>`).join(''); }
 const STATE_CN = {hunting: '練功', finding_rune: '找符文', near_rune: '在符文旁', solving_rune: '解符文', aux: '只輔助', patrol: '巡邏'};
 const MODE_CN = {normal: '照路線練功', patrol: '左右巡邏', aux: '只輔助'};
 const SEARCH_CN = {roi: '角色周圍', full: '整個畫面', attack: '攻擊範圍'};
@@ -520,6 +551,7 @@ function recentText(line) {
     .replace(/key_down \S+ \('(.*?)'\)/, '按住 $1').replace(/key_up \S+ \('(.*?)'\)/, '放開 $1')
     .replace(/press \S+ \('(.*?)'\) ([\d.]+)s/, '按一下 $1（$2 秒）').replace(/click window.*-> guest\((\d+),(\d+)\)/, '點滑鼠（$1, $2）');
 }
+function vis(id, hidden) { const e = $(id); e.hidden = false; e.style.visibility = hidden ? 'hidden' : 'visible'; }
 function yes(b, t, f) { return b ? `<span class="badge b-ok">${t}</span>` : `<span class="badge b-bad">${f}</span>`; }
 
 // ---------- live status ----------
@@ -530,11 +562,12 @@ async function poll() {
   const det = s.detection || {}, inp = s.input || {}, hm = s.hp_mp_exp || {}, res = s.resolution || {};
   $('b-run').textContent = s.running ? '執行中' : '已暫停';
   $('b-run').className = 'badge ' + (s.running ? 'b-ok' : 'b-warn');
-  $('b-lost').hidden = !det.lost_paused;
+  vis('b-lost', !det.lost_paused);
   $('b-lost').textContent = '偵測不到：' + (det.lost_reason || []).map(r => r === 'minimap' ? '小地圖' : r === 'player' ? '玩家' : r).join('、') + '（停手中）';
   $('b-lost').className = 'badge b-bad';
   LIVE = inp.dry_run === false;
-  $('live-banner').hidden = !LIVE;
+  $('live-banner').className = 'banner' + (LIVE ? '' : ' dry');
+  $('live-banner').textContent = LIVE ? '⚠ 真的輸入中：正在對遊戲按鍵（按「暫停」停止）' : '模擬模式：不送任何按鍵到遊戲';
   const fs = (s.features || []).filter(f => f.on);
   $('feat-list').innerHTML = fs.length ? fs.map(f => `<span class="chip">${esc(f.cn)}</span>`).join('') : '<span class="msg">（只有基本練功）</span>';
   $('b-input').textContent = LIVE ? '真的輸入中' : '模擬（不送輸入）';
@@ -542,7 +575,7 @@ async function poll() {
   $('live-sw').checked = LIVE;
   $('sw').className = 'switch' + (LIVE ? ' on' : '');
   $('sw-text').textContent = LIVE ? '真的輸入：練功程式正在對遊戲按鍵' : '模擬模式：不會送任何按鍵到遊戲';
-  $('b-pending').hidden = !s.pending_restart;
+  vis('b-pending', !s.pending_restart);
   const hr = det.hit_rate || {};
   const pct = v => v === undefined ? '-' : Math.round(v * 100) + '%';
   const mm = s.minimap || {}, pl = s.player || {};
@@ -565,7 +598,7 @@ async function poll() {
   $('act-note').textContent = LIVE ? '（真的送出）' : '（模擬：只記錄、沒有送出）';
   const hc = s.hunt_cycle;
   if (hc && hc.enabled) {
-    $('b-cycle').hidden = false;
+    vis('b-cycle', false);
     $('b-cycle').textContent = `${hc.phase_cn}` + (hc.remaining_s !== null ? ` 剩 ${fmtS(hc.remaining_s)}` : '');
     $('b-cycle').className = 'badge ' + (hc.phase === 'hunt' ? 'b-ok' : hc.phase === 'ended' ? 'b-bad' : 'b-warn');
     const pl = hc.plan || {};
@@ -577,9 +610,9 @@ async function poll() {
       ['休息方式', {stop: '原地停手', safe_spot: '走到安全點', go_home: '回城後結束'}[hc.rest_action] + (hc.safe_spot ? `，安全點 [${hc.safe_spot}]` : (hc.rest_action === 'safe_spot' ? '，<span class="msg">這張地圖還沒設安全點</span>' : ''))],
       ['前往安全點', pl.cmd !== undefined ? `${pl.how === 'route_safe' ? '照安全路線' : pl.how === 'same_level' ? '同一層直接走' : '沒有路線'}：角色 [${pl.pos}] → [${pl.target}]，差 (${pl.dx}, ${pl.dy})，指令 ${esc(pl.cmd ?? '-')}${LIVE ? '' : '（模擬：會送）'}` : '-'],
       ['最近的切換', (hc.events || []).slice(-6).reverse().map(esc).join('<br>')],
-    ].map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+    ].map(([k, v]) => `<tr><td>${k}</td><td title="${esc(String(v).replace(/<[^>]*>/g, ''))}">${v}</td></tr>`).join('');
   } else {
-    $('b-cycle').hidden = true;
+    vis('b-cycle', true);
     $('cyclest').innerHTML = '<tr><td class="msg">沒有啟用（在下面「設定 → 練功 / 休息循環」打開）</td><td></td></tr>';
   }
   if (s.minimap && !$('sec-rp').hidden) { RP.player = s.minimap.player_global; rpDraw(); }
@@ -599,8 +632,12 @@ async function pollNow() {
   try {
     const n = await (await fetch('./now', {cache: 'no-store'})).json();
     $('now-main').textContent = n.main || '…';
-    $('now-dry').hidden = !n.dry_run;
-    $('now-det').textContent = (n.details || []).join('　·　') + (n.since_s >= 1 ? `　（已 ${n.since_s.toFixed(0)} 秒）` : '');
+    $('now-main').title = n.main || '';
+    $('now-dry').textContent = n.dry_run ? '試跑：以下動作不會真的送出' : (n.running === false ? '已暫停' : '真的輸入中');
+    $('now-dry').style.color = n.dry_run ? 'var(--warn)' : 'var(--mut)';
+    const det = (n.details || []).join('　·　') + (n.since_s >= 1 ? `　（已 ${n.since_s.toFixed(0)} 秒）` : '');
+    $('now-det').textContent = det || '\u00a0';
+    $('now-det').title = det;
     $('now-keys').innerHTML = (n.pressed || []).length ? n.pressed.map(k => `<span class="badge">${esc(KEYCN[k] || k.replace(/^Key/, ''))}</span>`).join('') : '<span class="msg">（沒有）</span>';
     const pct = v => v === null || v === undefined ? '-' : v.toFixed(0) + '%';
     $('now-bars').textContent = `${pct(n.hp)} / ${pct(n.mp)} / ${pct(n.exp)}`;
@@ -616,6 +653,7 @@ async function pollNow() {
   } catch (e) {} finally { nowBusy = false; }
 }
 setInterval(pollNow, 200);
+$('now-main').onclick = () => { const t = $('now-main').title; if (t) alert(t); };
 
 // ---------- image ----------
 let imgTimer = null;
@@ -650,6 +688,55 @@ $('dlg-ok').onclick = async () => {
   poll();
 };
 
+// ---------- key dropdowns ----------
+const KEY_OPTIONAL = new Set(['key.teleport', 'key.aoe_skill', 'key.party', 'key.return_home']);
+function keyCode(v) {
+  if (v === null || v === undefined || v === '') return null;
+  v = String(v);
+  const m = CFG.key_codes;
+  if (Object.values(m).includes(v)) return v;
+  return m[v.length === 1 ? v.toLowerCase() : v.trim().toLowerCase()] || m[v] || null;
+}
+function keySelectHtml(id, cls, v, optional) {
+  v = v === null || v === undefined ? '' : String(v);
+  const code = keyCode(v);
+  let found = v === '', html = '';
+  if (optional) html += `<option value="" ${v === '' ? 'selected' : ''}>（不使用）</option>`;
+  else if (v === '') html += '<option value="" selected>（未設定）</option>';
+  for (const g of CFG.key_options) {
+    html += `<optgroup label="${esc(g.group)}">`;
+    for (const k of g.keys) {
+      const sel = !found && code !== null && k.code === code;
+      if (sel) found = true;
+      // the same key saved under another name (e.g. "del") keeps its spelling
+      html += `<option value="${esc(sel ? v : k.value)}" ${sel ? 'selected' : ''}>${esc(k.label)}</option>`;
+    }
+    html += '</optgroup>';
+  }
+  if (!found) html = `<option value="${esc(v)}" selected>（目前：${esc(v)}，不在清單）</option>` + html;
+  return `<select${id ? ` id="${id}"` : ''} class="${cls}" data-key="1">${html}</select>`;
+}
+// the same key for two actions: a warning next to each of them (saving is not blocked)
+function keyDupes() {
+  if (!CFG) return;
+  const uses = [];
+  for (const f of CFG.fields) {
+    if (f.kind !== 'key') continue;
+    const id = 'f-' + f.name.replace('.', '-'), el = $(id);
+    if (!el) continue;
+    uses.push({name: (LABELS[f.name] || [f.name])[0], code: keyCode(el.value), warn: $('w-' + id)});
+  }
+  [...document.querySelectorAll('#f-buff_skill-items .buffrow')].forEach((r, i) => {
+    if (!r.querySelector('.be').checked) { r.querySelector('.bw').textContent = ''; return; }
+    uses.push({name: '增益技能「' + (r.querySelector('.bn').value.trim() || ('第 ' + (i + 1) + ' 列')) + '」', code: keyCode(r.querySelector('.bk').value), warn: r.querySelector('.bw')});
+  });
+  for (const u of uses) {
+    if (!u.warn) continue;
+    const others = uses.filter(o => o !== u && u.code && o.code === u.code).map(o => o.name);
+    u.warn.textContent = others.length ? `⚠ 和 ${others.join('、')} 是同一個鍵` : '';
+  }
+}
+
 // ---------- settings ----------
 function fieldHtml(f, v) {
   const [label, help] = LABELS[f.name] || [f.name, ''];
@@ -665,6 +752,8 @@ function fieldHtml(f, v) {
     input = `<input type="hidden" id="${id}" value="${esc(v ?? 'box')}">`
       + `<select id="f-attack-aoe_side"><option value="both" ${one ? '' : 'selected'}>打兩邊（以角色為中心）</option><option value="one" ${one ? 'selected' : ''}>打一邊（轉向怪多的那邊）</option></select>`
       + `<select id="f-attack-aoe_one" style="margin-top:4px"${one ? '' : ' hidden'}><option value="front" ${v === 'wedge' ? '' : 'selected'}>前方的框</option><option value="wedge" ${v === 'wedge' ? 'selected' : ''}>前方的扇形</option></select>`;
+  } else if (f.kind === 'key') {
+    input = keySelectHtml(id, '', v, KEY_OPTIONAL.has(f.name));
   } else if (f.kind === 'choice') {
     const cn = CHOICE_CN[f.name] || {};
     input = `<select id="${id}">` + f.choices.map(c => `<option value="${esc(c)}" ${c === v ? 'selected' : ''}>${esc(cn[c] || c)}</option>`).join('') + '</select>';
@@ -684,7 +773,7 @@ function fieldHtml(f, v) {
     input = `<input id="${id}" value="${esc(v ?? '')}" autocapitalize="off" autocomplete="off" spellcheck="false">`;
   }
   const span = f.kind === 'buffs' ? ' style="grid-column:1/-1"' : '';
-  return `<label class="f" data-f="${f.name}"${span}><b>${esc(label)} <code class="key">${esc(f.name)}</code></b>${input}${help ? `<span class="h">${esc(help)}</span>` : ''}<span class="err" id="e-${id}"></span></label>`;
+  return `<label class="f" data-f="${f.name}"${span}><b>${esc(label)} <code class="key">${esc(f.name)}</code></b>${input}${help ? `<span class="h">${esc(help)}</span>` : ''}${f.kind === 'key' ? `<span class="warn" id="w-${id}"></span>` : ''}<span class="err" id="e-${id}"></span></label>`;
 }
 function renderRoutes() {
   const map = $('f-bot-map').value, m = CFG.maps.find(x => x.id === map);
@@ -695,12 +784,14 @@ function addBuff(it) {
   const d = document.createElement('div');
   d.className = 'buffrow';
   d.innerHTML = `<input class="bn" placeholder="名稱（可空）" value="${esc(it.name ?? '')}">`
-    + `<input class="bk" placeholder="按鍵，例如 a" value="${esc(it.key ?? '')}" autocapitalize="off" spellcheck="false">`
+    + keySelectHtml('', 'bk', it.key ?? '', false)
     + `<input class="bc" type="number" inputmode="decimal" placeholder="冷卻秒" value="${esc(it.cooldown ?? '')}">`
     + `<label><input type="checkbox" class="be" ${it.enabled === false ? '' : 'checked'}> 啟用</label>`
     + `<label><input type="checkbox" class="bs" ${it.cast_at_start === false ? '' : 'checked'}> 啟動時先放</label>`
-    + `<button type="button" onclick="this.parentNode.remove()">刪除</button>`;
+    + `<button type="button" onclick="this.parentNode.remove();keyDupes()">刪除</button>`
+    + `<span class="warn bw"></span>`;
   $('f-buff_skill-items').appendChild(d);
+  keyDupes();
 }
 function fmtS(x) { if (x === null || x === undefined) return '-'; x = Math.max(0, Math.round(x)); const h = Math.floor(x / 3600), m = Math.floor(x % 3600 / 60), s = x % 60; return (h ? h + ' 小時 ' : '') + (h || m ? m + ' 分 ' : '') + s + ' 秒'; }
 async function loadConfig(keepMsg) {
@@ -713,11 +804,12 @@ async function loadConfig(keepMsg) {
   }
   $('form').innerHTML = html;
   $('nt-details').open = CFG.values['player_detect.mode'] !== 'party_bar';
-  $('form').onchange = e => { wedgePreset(e); applyDeps(); };
+  $('form').onchange = e => { wedgePreset(e); applyDeps(); keyDupes(); };
   $('form').oninput = applyDeps;
   renderRoutes();
   (CFG.values['buff_skill.items'] || []).forEach(addBuff);
   applyDeps();
+  keyDupes();
   ntStatus();
   if (!keepMsg) $('save-msg').textContent = '';
   if (CFG.values['hunt_cycle.enable'] && CFG.values['hunt_cycle.rest_action'] === 'safe_spot') rpLoad();

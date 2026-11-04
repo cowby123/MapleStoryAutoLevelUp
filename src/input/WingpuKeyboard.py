@@ -69,6 +69,33 @@ for _f in range(1, 13):  # the guest input path knows F1..F12
     KEY_MAP[f"f{_f}"] = f"F{_f}"
 
 
+def key_option_groups():
+    '''
+    Keys the web UI offers in its key dropdowns, grouped, with friendly names
+    (the game's hotbar abbreviations in parentheses). Every value is a KEY_MAP
+    name. [(group, [(value, label), ...]), ...]
+    '''
+    groups = [
+        ("字母 A–Z", [(c, c.upper()) for c in "abcdefghijklmnopqrstuvwxyz"]),
+        ("數字 0–9", [(str(d), str(d)) for d in range(10)]),
+        ("功能鍵 F1–F12", [(f"f{i}", f"F{i}") for i in range(1, 13)]),
+        ("控制鍵", [("ctrl", "Ctrl（左）"), ("ctrlright", "Ctrl（右）"), ("shift", "Shift（左）"),
+                  ("shiftright", "Shift（右）"), ("alt", "Alt（左）"), ("altright", "Alt（右）"),
+                  ("space", "Space（空白鍵）"), ("enter", "Enter"), ("tab", "Tab"), ("esc", "Esc"),
+                  ("backspace", "Backspace（退格）")]),
+        ("編輯鍵", [("insert", "Insert（Ins）"), ("delete", "Delete（Del）"), ("home", "Home（Hm）"),
+                  ("end", "End"), ("pageup", "PageUp（Pup）"), ("pagedown", "PageDown（Pdn）")]),
+        ("方向鍵", [("left", "←（左）"), ("right", "→（右）"), ("up", "↑（上）"), ("down", "↓（下）")]),
+        ("符號鍵", [("`", "` （波浪號鍵）"), ("-", "-（減號）"), ("=", "=（等號）"), ("[", "["), ("]", "]"),
+                  ("\\", "\\（反斜線）"), (";", ";（分號）"), ("'", "'（引號）"), (",", ",（逗號）"),
+                  (".", ".（句號）"), ("/", "/（斜線）")]),
+        ("數字鍵盤", [(f"num{d}", f"數字鍵盤 {d}") for d in range(10)] +
+         [("add", "數字鍵盤 +"), ("subtract", "數字鍵盤 -"), ("multiply", "數字鍵盤 *"),
+          ("divide", "數字鍵盤 /"), ("decimal", "數字鍵盤 .")]),
+    ]
+    return [(g, [(v, lab) for v, lab in keys if v in KEY_MAP]) for g, keys in groups]
+
+
 def to_key_code(key):
     '''
     pyautogui key name -> KeyboardEvent.code, or None if unknown/empty.

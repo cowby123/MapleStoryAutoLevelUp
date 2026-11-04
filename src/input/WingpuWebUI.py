@@ -33,7 +33,7 @@ import yaml
 from src.utils.logger import logger
 from src.utils.common import load_yaml, convert_tuples_to_lists
 from src.utils.config_layers import default_user_override
-from src.input.WingpuKeyboard import get_keyboard, to_key_code
+from src.input.WingpuKeyboard import get_keyboard, to_key_code, key_option_groups, KEY_MAP
 from src.utils.nametag import propose_rect, save_template, NametagTracker
 from src.utils.resolution import apply_scale
 import base64
@@ -251,6 +251,10 @@ class WebUI:
                         "range": extra if kind in ("num", "int", "floats", "range") else None}
                        for s, k, kind, extra in FIELDS],
             "maps": self.maps(),
+            # key dropdowns: groups of (value, label) and every accepted name -> code
+            "key_options": [{"group": g, "keys": [{"value": v, "label": lab, "code": KEY_MAP[v]} for v, lab in keys]}
+                            for g, keys in key_option_groups()],
+            "key_codes": KEY_MAP,
             "user_file": self.path,
             "user_override": convert_tuples_to_lists(self.user_override()),
             "live": not kb.dry_run,
