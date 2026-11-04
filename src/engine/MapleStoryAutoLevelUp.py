@@ -1469,6 +1469,10 @@ class MapleStoryAutoBot:
             f"Press 'F1' to {'pause' if self.kb.is_enable else 'start'} Bot",
             f"Press 'F2' to save screenshot{' : Saved' if dt_screenshot < 0.7 else ''}",
              "Press 'F12' to quit"]
+        if is_wingpu():
+            # no F1 / F2 / F12 hotkeys on wingpu (the web UI controls the bot;
+            # the page explains the labels in Chinese)
+            text_list = text_list[:3]
         for idx, text in enumerate(text_list):
             cv2.putText(
                 self.img_frame_debug, text,

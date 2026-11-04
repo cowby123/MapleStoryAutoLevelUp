@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>楓之谷練功 Bot</title>
+<title>楓之谷自動練功</title>
 <style>
 :root{--bg:#f4f5f7;--card:#fff;--fg:#1d2330;--mut:#667085;--line:#d9dde3;--acc:#2563eb;--ok:#15803d;--warn:#b45309;--bad:#b91c1c;--live:#dc2626}
 @media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1b2027;--fg:#e6e8eb;--mut:#9aa3ae;--line:#2c333c;--acc:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--live:#f87171}}
@@ -36,6 +36,10 @@ label.f span.h{color:var(--mut);font-size:12px}
 input,select{font:inherit;padding:7px 8px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--fg);min-height:38px;width:100%}
 input[type=checkbox]{width:auto;min-height:auto}
 .err{color:var(--bad);font-size:12px}
+code{overflow-wrap:anywhere}
+code.key{display:none;font-size:11px;font-weight:400;color:var(--mut);word-break:break-all}
+body.adv code.key{display:inline}
+label.f b{overflow-wrap:anywhere}
 fieldset{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:0 0 10px}
 legend{font-weight:600;padding:0 4px}
 .switch{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;border:2px solid var(--line)}
@@ -72,9 +76,9 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
 </style>
 </head>
 <body>
-<div id="live-banner" class="banner" hidden>⚠ 真的輸入中：bot 正在對遊戲按鍵。要停：按「暫停」或把下面的開關切回模擬。</div>
+<div id="live-banner" class="banner" hidden>⚠ 真的輸入中：練功程式正在對遊戲按鍵。要停：按「暫停」或把下面的開關切回模擬。</div>
 <header>
-  <h1>楓之谷練功 Bot</h1>
+  <h1>楓之谷自動練功</h1>
   <span id="b-run" class="badge">讀取中…</span>
   <span id="b-lost" class="badge" hidden></span>
   <span id="b-input" class="badge">模擬（不送輸入）</span>
@@ -87,16 +91,32 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
   <div id="now-main">…</div>
   <div id="now-det"></div>
   <div class="row" style="margin-top:4px"><span class="msg">按著的鍵：</span><span id="now-keys"></span>
-    <span class="msg" style="margin-left:12px">HP / MP / EXP：</span><span id="now-bars"></span></div>
+    <span class="msg" style="margin-left:12px">血 / 魔 / 經驗（HP / MP / EXP）：</span><span id="now-bars"></span></div>
 </div>
 <main>
   <section>
     <h2>畫面</h2>
-    <div class="imgwrap"><img id="live" class="live" alt="bot 偵測畫面"><div id="ov" hidden></div></div>
+    <div class="imgwrap"><img id="live" class="live" alt="偵測畫面"><div id="ov" hidden></div></div>
     <div class="row" style="margin-top:8px">
-      <label class="row"><input type="checkbox" id="mjpeg" checked> 即時串流</label>
+      <label class="row"><input type="checkbox" id="mjpeg" checked> 即時畫面（串流）</label>
       <span class="msg">不勾 = 每秒更新一次圖片；頁面看不到時自動停（不花 CPU）</span>
     </div>
+    <details class="msg" style="margin-top:6px"><summary>圖上的英文標記是什麼</summary>
+      <table class="legend">
+        <tr><td>Cmd</td><td>這一刻送出的指令（左右、上下、動作：attack 單體攻擊、aoe 群體技能、jump 跳）</td></tr>
+        <tr><td>FPS / State</td><td>每秒處理幾張 / 目前狀態（hunting 練功）</td></tr>
+        <tr><td>Route Action / Route Index</td><td>路線顏色叫角色做什麼 / 第幾條路線</td></tr>
+        <tr><td>Attack wedge、Attack Range</td><td>紅色：單體攻擊打得到的範圍（粗線 = 面向的那邊）</td></tr>
+        <tr><td>AoE area</td><td>青色：群體技能的範圍和裡面有幾隻怪（min = 門檻）</td></tr>
+        <tr><td>Mob Detection Box</td><td>藍色：在這個框裡找怪</td></tr>
+        <tr><td>綠框上的數字</td><td>找到的怪，數字是比對分數（越小越像）</td></tr>
+        <tr><td>Health Bar</td><td>黃框：用怪物頭上的血條找到的怪</td></tr>
+        <tr><td>party red bar / nametag</td><td>用隊伍紅條 / 名牌找到的自己</td></tr>
+        <tr><td>minimap</td><td>小地圖；右上角放大的是路線圖，黃點 = 角色</td></tr>
+        <tr><td>PAUSED / RUNE / CYCLE</td><td>停手的原因 / 符文 / 練功休息循環</td></tr>
+        <tr><td>L: R: Dir:</td><td>左右最近的怪多遠、要打哪邊</td></tr>
+      </table>
+    </details>
   </section>
 
   <section>
@@ -105,9 +125,9 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
       <button class="pri" onclick="post('run')">開始</button>
       <button onclick="post('pause')">暫停</button>
       <button onclick="restart()">重新啟動</button>
-      <button class="danger" onclick="if(confirm('結束 bot？之後要從容器重新執行。'))post('quit')">結束</button>
+      <button class="danger" onclick="if(confirm('結束練功程式？之後要從管理頁的 App 清單重新啟動。'))post('quit')">結束</button>
     </div>
-    <p class="msg">暫停：放開所有按鍵，只看不動。重新啟動：bot 程式重新開始（套用已儲存的設定；回到模擬模式，除非切到真的輸入時勾了「記住」）。</p>
+    <p class="msg">暫停：放開所有按鍵，只看不動。重新啟動：練功程式重新開始（套用已儲存的設定；回到模擬模式，除非切到真的輸入時勾了「記住」）。</p>
     <div id="sw" class="switch">
       <input type="checkbox" id="live-sw" style="width:22px;height:22px">
       <div><b id="sw-text">模擬模式：不會送任何按鍵到遊戲</b><div class="msg">切到「真的輸入」要確認；預設每次重新啟動都回到模擬模式。</div></div>
@@ -115,7 +135,7 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
     <h2 style="margin-top:12px">狀態</h2>
     <table id="st"></table>
     <div style="margin-top:8px">
-      <div class="msg">HP / MP / EXP</div>
+      <div class="msg">血 / 魔 / 經驗（HP / MP / EXP）</div>
       <div id="bars"></div>
     </div>
   </section>
@@ -131,7 +151,7 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
   </section>
 
   <section class="wide">
-    <h2>Buff <span class="msg" id="buff-note"></span></h2>
+    <h2>增益技能（Buff） <span class="msg" id="buff-note"></span></h2>
     <table id="buffst"></table>
   </section>
 
@@ -144,7 +164,7 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
     <h2>安全點與安全路線（目前地圖：<span id="rp-map"></span>）</h2>
     <p class="msg">「休息方式＝走到安全點」時用。點小地圖設安全點；要爬繩子 / 梯子才到得了的安全點，請畫一條「安全路線」：
       跟練功路線同一套顏色（下面的圖例），從練功區畫到安全點。沒有安全路線時，只有安全點跟角色在同一層才會走過去，否則原地休息。
-      休息完 bot 會自己回到練功路線。</p>
+      休息完會自己回到練功路線。</p>
     <div class="row">
       <label class="row"><input type="radio" name="rptool" value="spot" checked> 設安全點</label>
       <label class="row"><input type="radio" name="rptool" value="paint"> 畫筆</label>
@@ -193,10 +213,11 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
 
   <section class="wide">
     <h2>設定</h2>
-    <p class="msg">存到 <code id="ufile"></code>（最後一層，不改內建設定檔）。像素值是「參考尺寸 1296×700」的值，bot 會依遊戲解析度自動縮放。</p>
+    <p class="msg">存到 <code id="ufile"></code>（最後一層，不改內建設定檔）。像素值是「參考尺寸 1296×700」的值，會依遊戲解析度自動縮放。</p>
+    <label class="row msg"><input type="checkbox" id="adv"> 進階：顯示設定名稱（除錯用）</label>
     <form id="form" onsubmit="return false"></form>
     <div class="row">
-      <button class="pri" onclick="save(true)">儲存並套用（重新啟動 bot）</button>
+      <button class="pri" onclick="save(true)">儲存並套用（需要時重新啟動）</button>
       <button onclick="save(false)">只儲存</button>
       <button onclick="loadConfig()">放棄修改</button>
       <button class="danger" onclick="resetCfg()">清除我的設定</button>
@@ -207,9 +228,9 @@ img.tpl{image-rendering:pixelated;height:48px;border:1px solid var(--line);backg
 
 <dialog id="dlg">
   <h3 style="margin-top:0;color:var(--live)">切到「真的輸入」？</h3>
-  <p>bot 會真的對遊戲按鍵：移動、跳、攻擊、喝水。請先確認：</p>
+  <p>練功程式會真的對遊戲按鍵：移動、跳、攻擊、喝水。請先確認：</p>
   <ul class="msg"><li>遊戲在前景，輸入法是英數</li><li>按鍵設定正確</li><li>畫面上小地圖、玩家（隊伍紅條）都有偵測到</li></ul>
-  <label class="row"><input type="checkbox" id="remember"> 記住（重新啟動 bot 後仍是真的輸入）</label>
+  <label class="row"><input type="checkbox" id="remember"> 記住（重新啟動後仍是真的輸入）</label>
   <div class="row" style="margin-top:12px;justify-content:flex-end">
     <button onclick="dlg.close()">取消</button>
     <button class="danger" id="dlg-ok">確定，切到真的輸入</button>
@@ -224,129 +245,160 @@ if (!location.pathname.endsWith('/') && !location.pathname.endsWith('.html')) {
 const $ = id => document.getElementById(id);
 const dlg = $('dlg');
 const LABELS = {
-  'bot.map': ['地圖', '只列出 minimaps/ 裡有的地圖'],
-  'route.files': ['路線', '不勾 = 依序使用全部路線'],
-  'bot.mode': ['模式', 'normal 照路線練功；patrol 左右巡邏；aux 只輔助'],
-  'bot.attack': ['攻擊方式', 'directional 單方向；aoe_skill 範圍技'],
-  'key.directional_attack': ['攻擊鍵（單方向）', ''],
-  'key.aoe_skill': ['範圍技鍵', ''],
-  'key.jump': ['跳躍鍵', ''],
+  // 地圖與模式
+  'bot.map': ['地圖', '只列出有小地圖資料的地圖；換地圖要重新啟動'],
+  'route.files': ['路線', '全不勾 = 依序使用全部路線'],
+  'bot.mode': ['練功模式', '照路線練功（一般用這個）；左右巡邏；只輔助（不移動，只喝水、放增益技能）'],
+  'bot.attack': ['攻擊方式（基本）', '單方向攻擊（一般用這個）；或只用範圍技（舊做法）。要依怪物數量切換，請用下面「群體技能」'],
+  // 按鍵
+  'key.directional_attack': ['攻擊鍵（單體）', '例：ctrl'],
+  'key.aoe_skill': ['範圍技鍵（群體）', '例：q；群體 / 自動模式會按這個'],
+  'key.jump': ['跳躍鍵', '例：alt'],
   'key.teleport': ['瞬移鍵', '空白 = 不用（路線要瞬移時改成跳）'],
-  'key.add_hp': ['紅水（HP）鍵', ''],
-  'key.add_mp': ['藍水（MP）鍵', ''],
-  'key.party': ['組隊視窗鍵', ''],
-  'key.return_home': ['回城卷鍵', ''],
-  'buff_skill.items': ['Buff 技能', '每列一個 Buff：名稱（可空）、按鍵、冷卻秒數、啟用、啟動時先放'],
-  'hunt_cycle.enable': ['啟用練功 / 休息循環', ''],
-  'rune_find.enable': ['解符文', '出現符文訊息時去找符文、解箭頭（wingpu 解析度還沒驗證過，預設關）'],
-  'watchdog.last_attack_enable': ['太久沒攻擊就處理', '超過下面的秒數沒攻擊：換頻道或回城（dry run 不做）'],
-  'watchdog.last_attack_timeout_action': ['沒攻擊時做什麼', 'change_channel：換頻道（要開「有人就換頻道」的點擊流程）；go_home：回城並停止'],
-  'scheduled_channel_switching.enable': ['定時換頻道', '會點選單換頻道（點擊座標在這個解析度沒驗證）'],
-  'channel_change.enable': ['有其他玩家就換頻道', '會點選單換頻道（點擊座標在這個解析度沒驗證）'],
-  'health_monitor.return_home_if_no_potion': ['沒藥時回城', 'HP 一直低於門檻（喝不到水）就用回城卷並停止'],
-  'health_monitor.force_heal': ['先補血再打', 'HP 低時先喝水、暫停攻擊'],
-  'wingpu.ensure_party_on_start': ['開始時檢查組隊', '開始時按組隊鍵、沒隊伍就點「建立」'],
-  'hunt_cycle.hunt_minutes': ['每輪練功（分鐘）', '最少～最多，每輪隨機'],
-  'hunt_cycle.rest_minutes': ['每輪休息（分鐘）', '最少～最多，每輪隨機'],
-  'hunt_cycle.rest_action': ['休息方式', 'stop：原地停手（還會喝水）；safe_spot：走到安全點再停；go_home：按回城後結束這次'],
-  'hunt_cycle.safe_spot_timeout': ['走到安全點最多幾秒', '超過就原地休息'],
+  'key.add_hp': ['紅水鍵（補血 HP）', '例：delete'],
+  'key.add_mp': ['藍水鍵（補魔 MP）', '例：end'],
+  'key.party': ['組隊視窗鍵', '例：p'],
+  'key.return_home': ['回城卷鍵', '例：home'],
+  'buff_skill.items': ['增益技能（Buff）', '每列一個：名稱（可空）、按鍵、冷卻秒數、啟用、啟動時先放'],
+  // 找玩家
+  'player_detect.mode': ['怎麼找自己的角色', '隊伍紅條（預設，要組隊）；名牌（要先截取名牌）；自動（先紅條，找不到再用名牌）'],
+  'player_detect.nametag_thres': ['名牌比對門檻', '越小越嚴；一般 0.3（實測本人 0.00–0.20、別人 0.45 以上）'],
+  'player_detect.nametag_local_timeout': ['名牌在附近找幾秒', '這段時間只在上次位置附近找，省 CPU；一般 1'],
+  // 喝水
+  'health_monitor.enable': ['自動喝水', '血或魔低於下面的百分比就按紅水 / 藍水'],
+  'health_monitor.add_hp_percent': ['血量（HP）低於幾 % 喝紅水', '一般 30–50'],
+  'health_monitor.add_mp_percent': ['魔力（MP）低於幾 % 喝藍水', '一般 30–50'],
+  'health_monitor.add_hp_cooldown': ['紅水間隔（秒）', '避免連按；一般 0.5'],
+  'health_monitor.add_mp_cooldown': ['藍水間隔（秒）', '避免連按；一般 0.5'],
+  'health_monitor.fps_limit': ['每秒檢查血量幾次', '一般 10'],
+  'health_monitor.force_heal': ['先補血再打', '血低時先喝水、暫停攻擊'],
+  'health_monitor.return_home_if_no_potion': ['沒藥時回城', '血一直低於門檻（喝不到水）就用回城卷並停止'],
+  'health_monitor.return_home_watch_dog_timeout': ['沒藥時多久回城（秒）', '一般 3–5'],
+  // 攻擊（單體）
+  'directional_attack.stand_while_target': ['有怪在射程內時站著打', '開：怪在射程內就停下來打，不跟著路線走來走去（建議開）；關：每次攻擊轉向、攻擊之間照路線走'],
+  'directional_attack.target_hold_s': ['怪不見後再站幾秒', '偵測偶爾漏一兩張時不要馬上走開；一般 0.5'],
+  'directional_attack.target_commit_s': ['同一邊至少打幾秒', '兩邊都有怪時，不要每張畫面換邊；一般 0.6'],
+  'directional_attack.shape': ['射程形狀', '長方形：前方一個框（原本的做法）；扇形：遠程攻擊的實際範圍（太近打不到、越遠上下越寬）'],
+  'directional_attack.wedge_preset': ['職業預設', '選職業會自動填盲區和射程；改了數字會變成「自訂」'],
+  'directional_attack.wedge_skill_level': ['射程技能等級', '弓：會心之眼等級（射程 +45+5×等級）；飛鏢：精準暗器等級（+40+10×等級，15 級 = +200）；0 = 沒學'],
+  'directional_attack.wedge_start': ['近距離盲區', '前方這麼近打不到（遊戲像素）：弓 / 飛鏢 65、法術 50'],
+  'directional_attack.wedge_range': ['射程', '遊戲像素；選職業預設會自動算，弓箭手約 300–420'],
+  'directional_attack.wedge_slope': ['扇形擴張斜率', '每往前幾像素，上下各多 1 像素；一般 4'],
+  'directional_attack.wedge_center_height': ['扇形中心高度', '扇形中線在腳上方幾像素；一般 28'],
+  'directional_attack.wedge_feet_offset': ['腳的位置', 'bot 的玩家點往下幾像素是腳；一般 27（實測）'],
+  'directional_attack.dead_zone_action': ['怪太近時（在盲區）', '不理它（預設：照路線走 / 打別隻）；退開（選用）'],
+  'directional_attack.range_x': ['射程 寬', '長方形射程的寬度（參考像素）；一般 250–350'],
+  'directional_attack.range_y': ['射程 高', '長方形射程的高度（參考像素）；一般 70'],
+  'directional_attack.cooldown': ['攻擊間隔（秒）', '兩次單體攻擊之間；一般 0.1–0.9'],
+  // 群體技能
+  'attack.mode': ['單體 / 群體', '單體（預設，跟原本一樣）；只用群體技能；自動：範圍內的怪夠多就放群體，不然單體打最近的'],
+  'attack.aoe_min_count': ['幾隻以上放群體', '自動模式：範圍內怪物數到這個數字就放群體技能；一般 3'],
+  'attack.aoe_cooldown': ['群體技能冷卻（秒）', '兩次群體技能之間至少隔這麼久，冷卻中自動模式改用單體；照技能的冷卻填，例：1'],
+  'attack.aoe_shape': ['群體技能打哪裡', '打兩邊：以角色為中心，左右的怪一起算；打一邊：只算前方一邊，轉向怪多的那邊，那一邊的數量要到門檻。例：門檻 3、左 2 右 2 → 打兩邊會放；打一邊不放（每邊只有 2）'],
+  'aoe_skill.range_x': ['範圍 寬', '以角色為中心的框，左右總寬（參考像素）；一般 400'],
+  'aoe_skill.range_y': ['範圍 高', '以角色為中心的框，上下總高（參考像素）；一般 170'],
+  'attack.aoe_front_start': ['前方從多遠開始', '角色前方幾像素開始算（參考像素）；一般 0'],
+  'attack.aoe_front_range': ['往前多遠', '範圍的深度（參考像素）；一般 300'],
+  'attack.aoe_height': ['範圍高度', '前方框的上下高度（參考像素）；一般 170'],
+  'attack.aoe_wedge_slope': ['扇形擴張斜率', '每往前幾像素，上下各多 1 像素；一般 4'],
+  'attack.aoe_dy': ['範圍上下位移', '範圍中心在玩家點下方幾像素，負的 = 往上；一般 0'],
+  'attack.aoe_count_window_s': ['數怪看最近幾秒', '偵測偶爾漏一張時不要亂換；一般 0.3'],
+  'attack.aoe_count_stat': ['數怪取', '最多的一次（預設，漏偵測時比較穩）；中位數（誤判多時比較穩）'],
+  'aoe_skill.cooldown': ['範圍技間隔（秒，舊做法）', '只在「攻擊方式（基本）＝只用範圍技」時用'],
+  // 找怪
+  'monster_detect.mode': ['怪物辨識方式', '彩色比對（建議）；輪廓（最省 CPU、誤判多）；灰階；不用模板'],
+  'monster_detect.diff_thres': ['怪物比對門檻', '0–1，越小越嚴；彩色比對一般 0.14'],
+  'monster_detect.search': ['在哪裡找怪', '角色周圍的框（建議，下面四個值）；整個畫面（慢、誤判多）；攻擊範圍再外擴（原本的做法）'],
+  'monster_detect.search_box_margin': ['找怪範圍外擴', '「攻擊範圍再外擴」時多找幾像素（參考像素）；一般 80'],
+  'monster_detect.roi_left': ['找怪框 往左', '角色往左幾像素（參考像素）；一般 400'],
+  'monster_detect.roi_right': ['找怪框 往右', '角色往右幾像素（參考像素）；一般 400'],
+  'monster_detect.roi_up': ['找怪框 往上', '角色往上幾像素（參考像素）；一般 150'],
+  'monster_detect.roi_down': ['找怪框 往下', '角色往下幾像素（參考像素）；一般 150'],
+  'monster_detect.interval_frames': ['每幾張畫面找一次怪', '1 = 每張；2 = 隔一張（省一半 CPU，建議）'],
+  // 練功 / 休息
+  'hunt_cycle.enable': ['練功 / 休息循環', '練一段時間、休息一段時間，比較像真人'],
+  'hunt_cycle.hunt_minutes': ['每輪練功（分鐘）', '最少～最多，每輪隨機；例：40～70'],
+  'hunt_cycle.rest_minutes': ['每輪休息（分鐘）', '最少～最多，每輪隨機；例：5～15'],
+  'hunt_cycle.rest_action': ['休息方式', '原地停手（還會喝水）；走到安全點再停；回城後結束這次'],
+  'hunt_cycle.safe_spot_timeout': ['走到安全點最多幾秒', '超過就原地休息；一般 120'],
   'hunt_cycle.session_hours': ['總共玩幾小時後結束', '0 = 不限'],
-  'hunt_cycle.window_start': ['每天開始時間', 'HH:MM，空白 = 不限'],
-  'hunt_cycle.window_end': ['每天結束時間', 'HH:MM，可跨午夜，例如 22:00～02:00'],
-  'watchdog.last_attack_timeout': ['多久沒攻擊算卡住（秒）', '只在練功時算；dry run 不會換頻道 / 回城'],
-  'scheduled_channel_switching.interval_seconds': ['定時換頻道間隔（秒）', '定時換頻道要另外啟用'],
-  'health_monitor.return_home_watch_dog_timeout': ['沒藥時多久回城（秒）', '「沒藥回城」啟用時才用'],
-  'health_monitor.fps_limit': ['血量檢查每秒幾次', ''],
-  'buff_skill.action_cooldown': ['攻擊後多久才放 Buff（秒）', ''],
-  'aoe_skill.cooldown': ['範圍技間隔（秒）', ''],
-  'teleport.cooldown': ['瞬移間隔（秒）', ''],
-  'rune_find.near_rune_duration': ['在符文旁最多試幾秒', ''],
-  'patrol.patrol_attack_interval': ['巡邏模式攻擊間隔（秒）', ''],
-  'player_detect.nametag_local_timeout': ['名牌附近找的時間（秒）', '這段時間內只在上次位置附近找'],
-  'system.fps_limit_window_capturor': ['擷取畫面每秒幾張', ''],
-  'wingpu.debug_interval': ['狀態 / 偵測圖更新間隔（秒）', ''],
-  'wingpu.redetect_interval': ['重找遊戲視窗間隔（秒）', ''],
-  'wingpu.mjpeg_fps': ['即時串流每秒幾張', '有人在看時才編碼；10 張約 0.06 核、約 2.5 MB/s（大小 0.5：0.02 核、0.8 MB/s）'],
-  'wingpu.mjpeg_scale': ['即時串流大小', '0.5–1（原尺寸），小一點比較省'],
-  'player_detect.mode': ['玩家偵測', 'party_bar（預設）：只用隊伍紅條（要組隊）；nametag：只用名牌；auto：先紅條、找不到用名牌。名牌 / 自動要先用「截取名牌」截一張'],
-  'player_detect.nametag_thres': ['名牌比對門檻', '0.05–0.6，越小越嚴（實測本人 0.00–0.20、別的 0.45 以上）'],
-  'monster_detect.search': ['找怪範圍', 'roi：玩家周圍的框（下面四個值）；full：整個畫面（慢、誤判多）；attack：攻擊範圍＋外擴（上游）'],
-  'monster_detect.roi_left': ['找怪框 左', '參考像素，玩家往左'],
-  'monster_detect.roi_right': ['找怪框 右', '參考像素，玩家往右'],
-  'monster_detect.roi_up': ['找怪框 上', '參考像素，玩家往上'],
-  'monster_detect.roi_down': ['找怪框 下', '參考像素，玩家往下'],
-  'monster_detect.interval_frames': ['每幾張找一次怪', '1 = 每張；2 = 隔一張（省 CPU）'],
-  'health_monitor.enable': ['自動喝水', ''],
-  'health_monitor.add_hp_percent': ['HP 低於 % 喝紅水', ''],
-  'health_monitor.add_mp_percent': ['MP 低於 % 喝藍水', ''],
-  'health_monitor.add_hp_cooldown': ['紅水間隔（秒）', ''],
-  'health_monitor.add_mp_cooldown': ['藍水間隔（秒）', ''],
-  'directional_attack.range_x': ['攻擊範圍 寬', '參考像素'],
-  'directional_attack.range_y': ['攻擊範圍 高', '參考像素'],
-  'directional_attack.cooldown': ['攻擊間隔（秒）', ''],
-  'directional_attack.shape': ['攻擊範圍形狀', 'rect：前方長方形（原本的）；wedge：遠程攻擊的扇形（近距離打不到、越遠上下越寬）'],
-  'directional_attack.wedge_preset': ['職業預設', 'archer 弓箭手、arrow_blow 弓箭手（爆裂箭）、mage 法師、energy_bolt 法師（魔力爪）、thief_claw 盜賊飛鏢、custom 自訂'],
-  'directional_attack.wedge_skill_level': ['射程技能等級', '弓：會心之眼 Lv（射程 +45+5×Lv）；飛鏢：精準暗器 Lv（+40+10×Lv，Lv15 = +200）；0 = 沒學'],
-  'directional_attack.wedge_start': ['近距離盲區', '遊戲像素：前方這麼近打不到（弓 / 飛鏢 65、法術 50）'],
-  'directional_attack.wedge_range': ['射程', '遊戲像素（選職業預設會自動算）'],
-  'directional_attack.wedge_slope': ['擴張斜率', '每往前幾像素，上下各多 1 像素（預設 4）'],
-  'directional_attack.wedge_center_height': ['中心高度', '扇形中線在腳上方幾像素（預設 28）'],
-  'directional_attack.wedge_feet_offset': ['腳的位置', 'bot 的玩家點往下幾像素是腳（實測 27）'],
-  'curse.stop_while_cursed': ['詛咒時停止練功', '畫面出現詛咒（經驗值、掉寶 0）就停手：不攻擊、不移動、不放 Buff，還會喝水；詛咒消失自動恢復'],
-  'curse.action': ['詛咒時怎麼停', 'stop：原地停手（預設）；safe_spot：先走到安全點（要設安全點 / 安全路線，否則原地）'],
-  'detection_lost.minimap_grace_s': ['小地圖被擋住時最多撐幾秒', '活動特效、詛咒鎖頭擋住小地圖但看得到角色：這段時間只原地攻擊（不照路線走），超過才停手；0 = 馬上停手'],
+  'hunt_cycle.window_start': ['每天開始時間', '時:分，空白 = 不限'],
+  'hunt_cycle.window_end': ['每天結束時間', '時:分，可跨午夜，例：22:00～02:00'],
+  // 安全與其他
+  'route.jump_runup': ['跳不上平台時退後助跑', '路線叫你往右 / 左跳、但一直在原地跳（貼著牆、沒有速度）：先往回走幾格，再跑過去起跳'],
+  'route.jump_stuck_s': ['原地跳幾秒算卡住（秒）', '一般 2'],
+  'route.jump_runup_back_px': ['往回走幾格', '小地圖上的格數；一般 4'],
+  'edge_teleport.enable': ['平台邊緣自動跳回', '走到平台邊緣時跳回來，避免掉下去'],
+  'watchdog.timeout': ['卡住幾秒後亂動一下', '角色這麼久沒移動就隨機跳 / 走；一般 15'],
+  'detection_lost.timeout': ['找不到幾秒後停手（秒）', '小地圖或角色不見（開了商店、對話框）就放開所有鍵；一般 2'],
+  'detection_lost.minimap_grace_s': ['小地圖被擋住時最多撐幾秒', '活動特效、詛咒鎖頭擋住小地圖但看得到角色：這段時間只原地攻擊，超過才停手；0 = 馬上停手；一般 10'],
+  'system.fps_limit_main': ['每秒處理幾張畫面（FPS）', '越低越省 CPU；一般 20'],
+  // 符文 / 詛咒
+  'curse.stop_while_cursed': ['詛咒時停止練功', '畫面出現詛咒（經驗值、掉寶變 0）就停手：不攻擊、不移動、不放增益技能，還會喝水；詛咒消失自動恢復'],
+  'curse.action': ['詛咒時怎麼停', '原地停手（預設）；先走到安全點（要設安全點，否則原地）'],
   'rune_curse.enable': ['解符文（詛咒時）', '畫面出現「必須解放符文才能解除詛咒」時：停止練功，跟著角色旁的黃色箭頭找符文、按上鍵、解箭頭小遊戲；找不到就去安全點休息'],
-  'rune_curse.seek_timeout': ['找符文最多幾秒', '超過就去安全點（沒設就原地）停手'],
+  'rune_curse.seek_timeout': ['找符文最多幾秒', '超過就去安全點（沒設就原地）停手；一般 120'],
   'rune_curse.interact_key': ['解放符文的按鍵', '通常是 up（上）'],
-  'rune_curse.interact_every_px': ['每走幾像素按一次', '箭頭不見時也會按'],
-  'rune_curse.interact_cooldown': ['按鍵間隔（秒）', ''],
-  'rune_curse.resume': ['找不到時什麼時候恢復練功', 'curse_gone：等詛咒解除（預設，詛咒時練功沒經驗）；rest_time：休息下面的時間後就恢復'],
-  'rune_curse.rest_minutes': ['休息多久（分鐘）', '「rest_time」時用'],
-  'rune_curse.minigame_wait': ['小遊戲每按一個等幾秒', '按完一個方向鍵，等圖示消失再按下一個'],
-  'rune_curse.minigame_retries': ['小遊戲同一個最多重按幾次', '超過就放棄、停手等詛咒解除'],
-  'rune_curse.capture_frames': ['出現詛咒時自動存畫面（給開發用）', '詛咒時每 2 秒、符文小遊戲時每 0.4 秒（手動解也會存）；只讀畫面、存到 /work/frames_rune/auto，有數量上限'],
-  'rune_curse.capture_interval': ['存畫面間隔（秒）', '小遊戲時 0.5 秒一張'],
-  'rune_curse.capture_max': ['最多存幾張', ''],
-  'route.jump_runup': ['跳不上平台時退後助跑', '路線叫你往右 / 左跳、但一直在原地跳（貼著牆、沒有速度）：先往回走幾格，再跑過去、在牆前起跳'],
-  'route.jump_stuck_s': ['原地跳幾秒算卡住（秒）', ''],
-  'route.jump_runup_back_px': ['往回走幾格（小地圖像素）', ''],
-  'directional_attack.stand_while_target': ['有怪在射程內時站著打', '打開：怪在射程內就停下來打，不跟著路線走來走去；關（預設）：原本的做法（每次攻擊轉向、攻擊間照路線走）'],
-  'directional_attack.target_hold_s': ['怪不見後再站幾秒', '偵測偶爾漏一兩張時不要馬上走開'],
-  'directional_attack.target_commit_s': ['同一邊至少打幾秒', '兩邊都有怪時，不要每張畫面換邊'],
-  'directional_attack.dead_zone_action': ['太近時（怪在盲區）', 'ignore：不理它（預設，照路線走 / 打別隻）；back_off：退開（選用）'],
-  'attack.mode': ['單體 / 群體', 'single 單體（預設，跟原本一樣）；aoe 群體（只用範圍技）；auto 自動：範圍內的怪 ≥ 門檻就放範圍技，不然單體攻擊最近的'],
-  'attack.aoe_min_count': ['幾隻以上放群體', '自動模式：範圍內怪物數 ≥ 這個就放範圍技'],
-  'attack.aoe_cooldown': ['群體技能冷卻（秒）', '兩次範圍技之間至少隔這麼久；自動模式冷卻中改用單體'],
-  'attack.aoe_shape': ['群體技能範圍形狀', 'box：以角色為中心的框（用下面「範圍技 寬 / 高」）；front：角色前方的框；wedge：前方扇形。front / wedge 會轉向怪比較多的那邊'],
-  'attack.aoe_front_start': ['前方從多遠開始', '參考像素（front / wedge）'],
-  'attack.aoe_front_range': ['前方多遠', '參考像素（front / wedge）'],
-  'attack.aoe_height': ['範圍高度', '參考像素（front）'],
-  'attack.aoe_dy': ['範圍上下位移', '參考像素：範圍中心在玩家點下方多少（負的 = 往上）'],
-  'attack.aoe_wedge_slope': ['扇形擴張斜率', '每往前幾像素，上下各多 1 像素（wedge）'],
-  'attack.aoe_count_window_s': ['數怪看最近幾秒', '偵測偶爾漏一張或多一張時不要亂換（預設 0.3）'],
-  'attack.aoe_count_stat': ['數怪取', 'max：這段時間最多的一次（預設，漏偵測時比較穩）；median：中位數（誤判多時比較穩）'],
-  'aoe_skill.range_x': ['範圍技 寬', '參考像素'],
-  'aoe_skill.range_y': ['範圍技 高', '參考像素'],
-  'monster_detect.mode': ['怪物偵測方式', 'contour_only 最省'],
-  'monster_detect.diff_thres': ['怪物比對門檻', '0–1，越小越嚴'],
-  'monster_detect.search_box_margin': ['找怪範圍外擴', '參考像素'],
-  'edge_teleport.enable': ['平台邊緣自動跳回', ''],
-  'watchdog.timeout': ['卡住幾秒後隨機動作', ''],
-  'detection_lost.timeout': ['偵測不到幾秒後停手（秒）', '小地圖或玩家不見就放開所有鍵'],
-  'system.fps_limit_main': ['每秒處理幾張', '越低越省 CPU'],
+  'rune_curse.interact_every_px': ['每走幾像素按一次', '箭頭不見時也會按；一般 30'],
+  'rune_curse.interact_cooldown': ['按鍵間隔（秒）', '一般 1'],
+  'rune_curse.resume': ['找不到時什麼時候恢復練功', '等詛咒解除（預設，詛咒時練功沒經驗）；休息一段時間後就恢復'],
+  'rune_curse.rest_minutes': ['休息多久（分鐘）', '選「休息一段時間」時用'],
+  'rune_curse.minigame_wait': ['小遊戲每按一個等幾秒', '按完一個方向鍵，等圖示消失再按下一個；一般 0.6'],
+  'rune_curse.minigame_retries': ['小遊戲同一個最多重按幾次', '超過就放棄、停手等詛咒解除；一般 2'],
+  'rune_curse.capture_frames': ['出現詛咒時自動存畫面（給開發用）', '詛咒時每 2 秒、小遊戲時每 0.4 秒；只讀畫面，有數量上限'],
+  'rune_curse.capture_interval': ['存畫面間隔（秒）', '小遊戲時固定 0.5 秒一張'],
+  'rune_curse.capture_max': ['最多存幾張', '一般 500'],
+  // 其他功能開關
+  'rune_find.enable': ['解符文（舊做法）', '出現符文訊息時去找符文、解箭頭（這個解析度沒驗證過，預設關）'],
+  'rune_find.near_rune_duration': ['在符文旁最多試幾秒', '一般 10'],
+  'watchdog.last_attack_enable': ['太久沒攻擊就處理', '超過下面的秒數沒攻擊：換頻道或回城（模擬模式不做）'],
+  'watchdog.last_attack_timeout': ['多久沒攻擊算卡住（秒）', '只在練功時算；一般 300'],
+  'watchdog.last_attack_timeout_action': ['沒攻擊時做什麼', '換頻道（要另外開「有人就換頻道」的點擊流程）；回城並停止'],
+  'scheduled_channel_switching.enable': ['定時換頻道', '會點選單換頻道（點擊位置在這個解析度沒驗證）'],
+  'scheduled_channel_switching.interval_seconds': ['定時換頻道間隔（秒）', '例：1800 = 半小時'],
+  'channel_change.enable': ['有其他玩家就換頻道', '會點選單換頻道（點擊位置在這個解析度沒驗證）'],
+  'wingpu.ensure_party_on_start': ['開始時檢查組隊', '開始時按組隊鍵、沒隊伍就點「建立」'],
+  // 其他時間設定
+  'buff_skill.action_cooldown': ['攻擊後多久才放增益技能（秒）', '一般 1'],
+  'teleport.cooldown': ['瞬移間隔（秒）', '一般 1'],
+  'patrol.patrol_attack_interval': ['巡邏模式攻擊間隔（秒）', '一般 2.5'],
+  'system.fps_limit_window_capturor': ['擷取畫面每秒幾張（FPS）', '一般 20'],
+  'wingpu.debug_interval': ['狀態 / 偵測圖更新間隔（秒）', '一般 1'],
+  'wingpu.redetect_interval': ['重找遊戲視窗間隔（秒）', '一般 5'],
+  'wingpu.mjpeg_fps': ['即時畫面每秒幾張（FPS）', '有人在看時才編碼；10 張約 0.06 核 CPU、每秒約 2.5 MB'],
+  'wingpu.mjpeg_scale': ['即時畫面大小', '0.5–1（1 = 原尺寸），小一點比較省；一般 1'],
+};
+// select options in Chinese (the value sent stays the config value)
+const CHOICE_CN = {
+  'bot.mode': {normal: '照路線練功', patrol: '左右巡邏', aux: '只輔助（不移動）'},
+  'bot.attack': {directional: '單方向攻擊', aoe_skill: '只用範圍技（舊做法）'},
+  'player_detect.mode': {party_bar: '隊伍紅條', nametag: '名牌', auto: '自動（先紅條，再名牌）'},
+  'directional_attack.shape': {rect: '長方形', wedge: '扇形（遠程）'},
+  'directional_attack.wedge_preset': {archer: '弓箭手', arrow_blow: '弓箭手（爆裂箭）', mage: '法師', energy_bolt: '法師（魔力爪）', thief_claw: '盜賊（飛鏢）', custom: '自訂'},
+  'directional_attack.dead_zone_action': {ignore: '不理它', back_off: '退開'},
+  'attack.mode': {single: '單體（預設）', aoe: '只用群體技能', auto: '自動（依數量）'},
+  'attack.aoe_count_stat': {max: '最多的一次', median: '中位數'},
+  'monster_detect.mode': {color: '彩色比對', contour_only: '輪廓', grayscale: '灰階', template_free: '不用模板'},
+  'monster_detect.search': {roi: '角色周圍的框', full: '整個畫面', attack: '攻擊範圍再外擴'},
+  'hunt_cycle.rest_action': {stop: '原地停手', safe_spot: '走到安全點', go_home: '回城後結束'},
+  'curse.action': {stop: '原地停手', safe_spot: '走到安全點'},
+  'rune_curse.resume': {curse_gone: '等詛咒解除', rest_time: '休息一段時間'},
+  'watchdog.last_attack_timeout_action': {change_channel: '換頻道', go_home: '回城並停止'},
 };
 const GROUPS = [
   ['地圖與模式', ['bot.map', 'route.files', 'bot.mode', 'bot.attack']],
   ['按鍵', ['key.directional_attack', 'key.aoe_skill', 'key.jump', 'key.teleport', 'key.add_hp', 'key.add_mp', 'key.party', 'key.return_home']],
-  ['Buff 技能', ['buff_skill.items']],
-  ['找玩家', ['player_detect.mode', 'player_detect.nametag_thres']],
+  ['增益技能（Buff）', ['buff_skill.items']],
+  ['找自己的角色', ['player_detect.mode', 'player_detect.nametag_thres', 'player_detect.nametag_local_timeout']],
   ['喝水', ['health_monitor.enable', 'health_monitor.add_hp_percent', 'health_monitor.add_mp_percent', 'health_monitor.add_hp_cooldown', 'health_monitor.add_mp_cooldown', 'health_monitor.fps_limit', 'health_monitor.force_heal', 'health_monitor.return_home_if_no_potion', 'health_monitor.return_home_watch_dog_timeout']],
-  ['攻擊與偵測', ['directional_attack.stand_while_target', 'directional_attack.target_hold_s', 'directional_attack.target_commit_s', 'directional_attack.shape', 'directional_attack.wedge_preset', 'directional_attack.wedge_skill_level', 'directional_attack.wedge_start', 'directional_attack.wedge_range', 'directional_attack.wedge_slope', 'directional_attack.wedge_center_height', 'directional_attack.wedge_feet_offset', 'directional_attack.dead_zone_action', 'directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown', 'attack.mode', 'attack.aoe_min_count', 'attack.aoe_cooldown', 'attack.aoe_shape', 'aoe_skill.range_x', 'aoe_skill.range_y', 'attack.aoe_front_start', 'attack.aoe_front_range', 'attack.aoe_height', 'attack.aoe_wedge_slope', 'attack.aoe_dy', 'attack.aoe_count_window_s', 'attack.aoe_count_stat', 'monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search_box_margin', 'monster_detect.search', 'monster_detect.roi_left', 'monster_detect.roi_right', 'monster_detect.roi_up', 'monster_detect.roi_down', 'monster_detect.interval_frames']],
+  ['攻擊（單體）', ['directional_attack.stand_while_target', 'directional_attack.target_hold_s', 'directional_attack.target_commit_s', 'directional_attack.shape', 'directional_attack.wedge_preset', 'directional_attack.wedge_skill_level', 'directional_attack.wedge_start', 'directional_attack.wedge_range', 'directional_attack.wedge_slope', 'directional_attack.wedge_center_height', 'directional_attack.wedge_feet_offset', 'directional_attack.dead_zone_action', 'directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown']],
+  ['群體技能（依怪物數量）', ['attack.mode', 'attack.aoe_min_count', 'attack.aoe_cooldown', 'attack.aoe_shape', 'aoe_skill.range_x', 'aoe_skill.range_y', 'attack.aoe_front_start', 'attack.aoe_front_range', 'attack.aoe_height', 'attack.aoe_wedge_slope', 'attack.aoe_dy', 'attack.aoe_count_window_s', 'attack.aoe_count_stat']],
+  ['找怪', ['monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search', 'monster_detect.search_box_margin', 'monster_detect.roi_left', 'monster_detect.roi_right', 'monster_detect.roi_up', 'monster_detect.roi_down', 'monster_detect.interval_frames']],
   ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
   ['安全與其他', ['route.jump_runup', 'route.jump_stuck_s', 'route.jump_runup_back_px', 'edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'detection_lost.minimap_grace_s', 'system.fps_limit_main']],
   ['符文 / 詛咒', ['curse.stop_while_cursed', 'curse.action', 'rune_curse.enable', 'rune_curse.seek_timeout', 'rune_curse.interact_key', 'rune_curse.interact_every_px', 'rune_curse.interact_cooldown', 'rune_curse.resume', 'rune_curse.rest_minutes', 'rune_curse.minigame_wait', 'rune_curse.minigame_retries', 'rune_curse.capture_frames', 'rune_curse.capture_interval', 'rune_curse.capture_max']],
   ['其他功能開關（預設都關）', ['rune_find.enable', 'rune_find.near_rune_duration', 'watchdog.last_attack_enable', 'watchdog.last_attack_timeout', 'watchdog.last_attack_timeout_action', 'scheduled_channel_switching.enable', 'scheduled_channel_switching.interval_seconds', 'channel_change.enable', 'wingpu.ensure_party_on_start']],
-  ['其他時間設定', ['buff_skill.action_cooldown', 'aoe_skill.cooldown', 'teleport.cooldown', 'patrol.patrol_attack_interval', 'player_detect.nametag_local_timeout', 'system.fps_limit_window_capturor', 'wingpu.debug_interval', 'wingpu.redetect_interval', 'wingpu.mjpeg_fps', 'wingpu.mjpeg_scale']],
+  ['其他時間設定', ['buff_skill.action_cooldown', 'aoe_skill.cooldown', 'teleport.cooldown', 'patrol.patrol_attack_interval', 'system.fps_limit_window_capturor', 'wingpu.debug_interval', 'wingpu.redetect_interval', 'wingpu.mjpeg_fps', 'wingpu.mjpeg_scale']],
 ];
 let CFG = null, LIVE = false;
 // sub-settings shown only while their feature is on (form values)
@@ -401,9 +453,14 @@ const DEPS = {
   'rune_curse.capture_max': v => v['rune_curse.capture_frames'],
   'route.jump_runup_back_px': v => v['route.jump_runup'],
   'directional_attack.target_commit_s': v => v['directional_attack.stand_while_target'],
+  'monster_detect.search_box_margin': v => v['monster_detect.search'] === 'attack',
+  'aoe_skill.cooldown': v => v['bot.attack'] === 'aoe_skill',
+  // 群體技能: only the sizes of the chosen area
   'attack.aoe_min_count': v => v['attack.mode'] === 'auto',
   'attack.aoe_cooldown': v => v['attack.mode'] !== 'single',
   'attack.aoe_shape': v => v['attack.mode'] !== 'single',
+  'aoe_skill.range_x': v => v['bot.attack'] === 'aoe_skill' || (v['attack.mode'] !== 'single' && v['attack.aoe_shape'] === 'box'),
+  'aoe_skill.range_y': v => v['bot.attack'] === 'aoe_skill' || (v['attack.mode'] !== 'single' && v['attack.aoe_shape'] === 'box'),
   'attack.aoe_front_start': v => v['attack.mode'] !== 'single' && v['attack.aoe_shape'] !== 'box',
   'attack.aoe_front_range': v => v['attack.mode'] !== 'single' && v['attack.aoe_shape'] !== 'box',
   'attack.aoe_height': v => v['attack.mode'] !== 'single' && v['attack.aoe_shape'] === 'front',
@@ -432,6 +489,9 @@ function applyDeps() {
     const el = document.querySelector(`label.f[data-f="${name}"]`);
     if (el) el.hidden = !pred(v);
   }
+  // 打一邊: 框 / 扇形 sub-choice
+  const one = $('f-attack-aoe_side');
+  if (one) $('f-attack-aoe_one').hidden = one.value !== 'one';
   // sections that belong to an option
   const vals = CFG.values;
   $('sec-rp').hidden = !(vals['hunt_cycle.enable'] && vals['hunt_cycle.rest_action'] === 'safe_spot');
@@ -447,12 +507,25 @@ async function post(p) { await api(p, {}); poll(); }
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
 function rows(t, list) { t.innerHTML = list.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join(''); }
+const STATE_CN = {hunting: '練功', finding_rune: '找符文', near_rune: '在符文旁', solving_rune: '解符文', aux: '只輔助', patrol: '巡邏'};
+const MODE_CN = {normal: '照路線練功', patrol: '左右巡邏', aux: '只輔助'};
+const SEARCH_CN = {roi: '角色周圍', full: '整個畫面', attack: '攻擊範圍'};
+const MOVE_CN = {left: '往左', right: '往右', up: '往上', down: '往下', stop: '停', none: ''};
+const ACT_CN = {attack: '單體攻擊', aoe: '群體技能', jump: '跳', teleport: '瞬移', goal: '到終點', add_hp: '喝紅水', add_mp: '喝藍水', none: ''};
+function cmdText(c) { if (!c) return '-'; const t = [MOVE_CN[c.move_x] ?? c.move_x, MOVE_CN[c.move_y] ?? c.move_y, ACT_CN[c.action] ?? c.action].filter(x => x).join('、'); return t || '不動'; }
+function COMMAND_CN_JS(k) { const l = (RP.info && RP.info.legend || []).find(x => x.cmd === k); return l ? l.cn : k; }
+function errText(e) { return Object.values(e || {}).join('；') || '失敗'; }
+function recentText(line) {
+  return line.replace(/^\s*([\d.]+)s ago\s+/, '$1 秒前　')
+    .replace(/key_down \S+ \('(.*?)'\)/, '按住 $1').replace(/key_up \S+ \('(.*?)'\)/, '放開 $1')
+    .replace(/press \S+ \('(.*?)'\) ([\d.]+)s/, '按一下 $1（$2 秒）').replace(/click window.*-> guest\((\d+),(\d+)\)/, '點滑鼠（$1, $2）');
+}
 function yes(b, t, f) { return b ? `<span class="badge b-ok">${t}</span>` : `<span class="badge b-bad">${f}</span>`; }
 
 // ---------- live status ----------
 async function poll() {
   let s;
-  try { s = await (await fetch('./status', {cache: 'no-store'})).json(); } catch (e) { $('b-run').textContent = '連不到 bot'; $('b-run').className = 'badge b-bad'; return; }
+  try { s = await (await fetch('./status', {cache: 'no-store'})).json(); } catch (e) { $('b-run').textContent = '連不到練功程式'; $('b-run').className = 'badge b-bad'; return; }
   if (!s || !s.time) { $('b-run').textContent = '等第一張畫面…'; return; }
   const det = s.detection || {}, inp = s.input || {}, hm = s.hp_mp_exp || {}, res = s.resolution || {};
   $('b-run').textContent = s.running ? '執行中' : '已暫停';
@@ -468,27 +541,27 @@ async function poll() {
   $('b-input').className = 'badge ' + (LIVE ? 'b-live' : '');
   $('live-sw').checked = LIVE;
   $('sw').className = 'switch' + (LIVE ? ' on' : '');
-  $('sw-text').textContent = LIVE ? '真的輸入：bot 正在對遊戲按鍵' : '模擬模式：不會送任何按鍵到遊戲';
+  $('sw-text').textContent = LIVE ? '真的輸入：練功程式正在對遊戲按鍵' : '模擬模式：不會送任何按鍵到遊戲';
   $('b-pending').hidden = !s.pending_restart;
   const hr = det.hit_rate || {};
   const pct = v => v === undefined ? '-' : Math.round(v * 100) + '%';
   const mm = s.minimap || {}, pl = s.player || {};
   rows($('st'), [
-    ['狀態機', esc(s.state) + ' / ' + esc(s.mode) + ' / ' + esc(s.map)],
+    ['狀態', esc(STATE_CN[s.state] || s.state) + ' / ' + esc(MODE_CN[s.mode] || s.mode) + ' / 地圖 ' + esc(((CFG && CFG.maps || []).find(m => m.id === s.map) || {}).name || s.map)],
     ['小地圖', yes(det.minimap_age_s !== null && det.minimap_age_s < 3, '有', '沒有') + ` <span class="msg">命中 ${pct(hr.minimap)}，比例 ${res.minimap_scale ?? '-'}</span>`],
     ['玩家', yes(det.player_age_s !== null && det.player_age_s < 3, '有', '沒有') + ` <span class="msg">${s.player_source === 'party_bar' ? '隊伍紅條' : s.player_source === 'nametag' ? '名牌' : '這張沒找到'}；命中 ${pct(hr.player)}（紅條 ${pct(hr.player_party_bar)}、名牌 ${pct(hr.player_nametag)}），位置 ${esc(JSON.stringify(pl.loc))}</span>`],
     ['名牌', s.nametag && s.nametag.loaded ? `分數 ${s.nametag.score ?? '-'}（${s.nametag.search === 'local' ? '附近找' : s.nametag.search === 'global' ? '全畫面找' : '-'}）` : '<span class="msg">沒有名牌模板</span>'],
     ['小地圖上的玩家', esc(JSON.stringify(mm.player_on_minimap)) + ' → 路線 ' + esc(JSON.stringify(mm.player_global))],
-    ['怪物', (s.monsters || []).length + ' 隻' + (s.mob_search ? ` <span class="msg">找怪範圍 ${esc(s.mob_search.mode)} ${esc(JSON.stringify(s.mob_search.box))}</span>` : '')],
-    ['指令', esc(`${s.command.move_x} ${s.command.move_y} ${s.command.action}`) + (s.kb_hold ? ' <span class="badge b-bad">停手</span>' : '')],
-    ['解析度', esc((res.frame_wh || []).join('×')) + `，縮放 ${res.ui_scale}`],
-    ['速度 / CPU', `${s.loop_fps} 張/秒，${s.process_cpu_cores} 核`],
-    ['擷取', s.capture ? `${s.capture.capture_fps} fps，延遲 ${s.capture.frame_age_s}s` : '-'],
+    ['怪物', (s.monsters || []).length + ' 隻' + (s.mob_search ? ` <span class="msg">找怪範圍：${esc(SEARCH_CN[s.mob_search.mode] || s.mob_search.mode)} ${esc(JSON.stringify(s.mob_search.box))}</span>` : '')],
+    ['指令', esc(cmdText(s.command)) + (s.kb_hold ? ' <span class="badge b-bad">停手</span>' : '')],
+    ['解析度', esc((res.frame_wh || []).join('×')) + `，縮放 ${res.ui_scale} 倍`],
+    ['速度 / CPU', `每秒 ${s.loop_fps} 張（FPS），用 ${s.process_cpu_cores} 個核心`],
+    ['擷取畫面', s.capture ? `每秒 ${s.capture.capture_fps} 張，延遲 ${s.capture.frame_age_s} 秒` : '-'],
     ['更新時間', esc(s.time)],
   ]);
   const bar = (n, v, c) => `<div class="row" style="gap:6px"><span style="width:34px">${n}</span><div class="bar" style="flex:1"><div style="width:${Math.max(0, Math.min(100, v || 0))}%;background:${c}"></div></div><span style="width:48px;text-align:right">${v ?? '-'}%</span></div>`;
-  $('bars').innerHTML = hm.bars_found ? bar('HP', hm.hp, '#dc2626') + bar('MP', hm.mp, '#2563eb') + bar('EXP', hm.exp, '#ca8a04') : '<span class="msg">找不到 HP/MP 條</span>';
-  $('recent').textContent = (inp.recent || []).slice().reverse().join('\n') || '（還沒有）';
+  $('bars').innerHTML = hm.bars_found ? bar('血', hm.hp, '#dc2626') + bar('魔', hm.mp, '#2563eb') + bar('經驗', hm.exp, '#ca8a04') : '<span class="msg">找不到血條 / 魔力條</span>';
+  $('recent').textContent = (inp.recent || []).slice().reverse().map(recentText).join('\n') || '（還沒有）';
   $('act-note').textContent = LIVE ? '（真的送出）' : '（模擬：只記錄、沒有送出）';
   const hc = s.hunt_cycle;
   if (hc && hc.enabled) {
@@ -512,9 +585,9 @@ async function poll() {
   if (s.minimap && !$('sec-rp').hidden) { RP.player = s.minimap.player_global; rpDraw(); }
   const bs = s.buffs || [];
   $('buff-note').textContent = LIVE ? '' : '（模擬：「放」= 會放，沒有送出）';
-  $('buffst').innerHTML = bs.length ? '<tr><td>Buff</td><td>下次 / 上次</td></tr>' + bs.map(b =>
-    `<tr><td>${esc(b.name || b.key)} <span class="msg">${esc(b.key)}，每 ${b.cooldown}s</span></td><td>${b.next_in_s > 0 ? b.next_in_s + ' 秒後' : '等待放（偵測不到或剛攻擊時會延後）'} / ${b.last_cast_s_ago === null ? '還沒放' : b.last_cast_s_ago + ' 秒前' + (LIVE ? '' : '（模擬）')}</td></tr>`).join('')
-    : '<tr><td class="msg">沒有啟用的 Buff</td><td></td></tr>';
+  $('buffst').innerHTML = bs.length ? '<tr><td>增益技能</td><td>下次 / 上次</td></tr>' + bs.map(b =>
+    `<tr><td>${esc(b.name || b.key)} <span class="msg">${esc(b.key)} 鍵，每 ${b.cooldown} 秒</span></td><td>${b.next_in_s > 0 ? b.next_in_s + ' 秒後' : '等待放（偵測不到或剛攻擊時會延後）'} / ${b.last_cast_s_ago === null ? '還沒放' : b.last_cast_s_ago + ' 秒前' + (LIVE ? '' : '（模擬）')}</td></tr>`).join('')
+    : '<tr><td class="msg">沒有啟用的增益技能</td><td></td></tr>';
 }
 
 // ---------- 目前狀態 (./now, ~5/s while the page is visible) ----------
@@ -566,14 +639,14 @@ $('live-sw').onchange = async e => {
     dlg.showModal();
   } else {
     const r = await api('api/live', {live: false});
-    if (!r.ok) alert(JSON.stringify(r.errors));
+    if (!r.ok) alert(errText(r.errors));
     poll();
   }
 };
 $('dlg-ok').onclick = async () => {
   const r = await api('api/live', {live: true, confirm: 'LIVE', remember: $('remember').checked});
   dlg.close();
-  if (!r.ok) alert(JSON.stringify(r.errors));
+  if (!r.ok) alert(errText(r.errors));
   poll();
 };
 
@@ -586,8 +659,15 @@ function fieldHtml(f, v) {
     input = `<select id="${id}" onchange="renderRoutes()">` + CFG.maps.filter(m => m.supported).map(m => `<option value="${esc(m.id)}" ${m.id === v ? 'selected' : ''}>${esc(m.name)}（${esc(m.id)}）</option>`).join('') + '</select>';
   } else if (f.kind === 'routes') {
     input = `<div id="${id}" class="row"></div>`;
+  } else if (f.name === 'attack.aoe_shape') {
+    // one config value (box | front | wedge) shown as two choices
+    const one = v === 'front' || v === 'wedge';
+    input = `<input type="hidden" id="${id}" value="${esc(v ?? 'box')}">`
+      + `<select id="f-attack-aoe_side"><option value="both" ${one ? '' : 'selected'}>打兩邊（以角色為中心）</option><option value="one" ${one ? 'selected' : ''}>打一邊（轉向怪多的那邊）</option></select>`
+      + `<select id="f-attack-aoe_one" style="margin-top:4px"${one ? '' : ' hidden'}><option value="front" ${v === 'wedge' ? '' : 'selected'}>前方的框</option><option value="wedge" ${v === 'wedge' ? 'selected' : ''}>前方的扇形</option></select>`;
   } else if (f.kind === 'choice') {
-    input = `<select id="${id}">` + f.choices.map(c => `<option ${c === v ? 'selected' : ''}>${esc(c)}</option>`).join('') + '</select>';
+    const cn = CHOICE_CN[f.name] || {};
+    input = `<select id="${id}">` + f.choices.map(c => `<option value="${esc(c)}" ${c === v ? 'selected' : ''}>${esc(cn[c] || c)}</option>`).join('') + '</select>';
   } else if (f.kind === 'bool') {
     input = `<input type="checkbox" id="${id}" ${v ? 'checked' : ''}>`;
   } else if (f.kind === 'buffs') {
@@ -604,7 +684,7 @@ function fieldHtml(f, v) {
     input = `<input id="${id}" value="${esc(v ?? '')}" autocapitalize="off" autocomplete="off" spellcheck="false">`;
   }
   const span = f.kind === 'buffs' ? ' style="grid-column:1/-1"' : '';
-  return `<label class="f" data-f="${f.name}"${span}><b>${esc(label)}</b>${input}${help ? `<span class="h">${esc(help)}</span>` : ''}<span class="err" id="e-${id}"></span></label>`;
+  return `<label class="f" data-f="${f.name}"${span}><b>${esc(label)} <code class="key">${esc(f.name)}</code></b>${input}${help ? `<span class="h">${esc(help)}</span>` : ''}<span class="err" id="e-${id}"></span></label>`;
 }
 function renderRoutes() {
   const map = $('f-bot-map').value, m = CFG.maps.find(x => x.id === map);
@@ -655,6 +735,7 @@ function collect() {
       continue;
     }
     const el = $(id);
+    if (f.name === 'attack.aoe_shape') { v[f.name] = $('f-attack-aoe_side').value === 'both' ? 'box' : $('f-attack-aoe_one').value; continue; }
     if (f.kind === 'bool') v[f.name] = el.checked;
     else if (f.kind === 'range') v[f.name] = [el.querySelector('.ra').value, el.querySelector('.rb').value];
     else v[f.name] = el.value;
@@ -667,14 +748,14 @@ async function save(apply) {
   if (!r.ok) {
     for (const [k, msg] of Object.entries(r.errors || {})) {
       const el = $('e-f-' + k.replace('.', '-'));
-      if (el) el.textContent = msg; else alert(k + ': ' + msg);
+      if (el) el.textContent = msg; else alert(((LABELS[k] || [])[0] || k) + '：' + msg);
     }
     $('save-msg').textContent = '沒有儲存：請修正紅字。';
     return;
   }
   const need = r.needs_restart || [];
   const hc = r.hunt_cycle;
-  let msg = need.length ? `已儲存。${need.length} 項要重新啟動 bot 才生效（${need.join('、')}），其餘已立即套用。` : '已儲存，已立即套用（不用重新啟動）。';
+  let msg = need.length ? `已儲存。${need.length} 項要重新啟動才生效（${need.map(n => (LABELS[n] || [])[0] || n).join('、')}），其餘已立即套用。` : '已儲存，已立即套用（不用重新啟動）。';
   if (hc && hc.enabled && hc.remaining_s !== null) msg += ` 目前${hc.phase_cn}，還剩 ${fmtS(hc.remaining_s)}。`;
   $('save-msg').textContent = msg + (apply && need.length ? ' 重新啟動中…' : '');
   if (apply && need.length) restart(); else { poll(); loadConfig(true); }
@@ -770,7 +851,7 @@ function rpPaint(c) {
     const c = rpCell(e);
     if (rpTool() === 'spot') {
       const r = await api('api/safe_spot', {x: c[0], y: c[1]});
-      if (r.ok) { RP.spot = r.safe_spot; $('rp-msg').textContent = `安全點設在 [${r.safe_spot}]（${r.map}），已存、立即生效。`; } else $('rp-msg').textContent = JSON.stringify(r.errors);
+      if (r.ok) { RP.spot = r.safe_spot; $('rp-msg').textContent = `安全點設在 [${r.safe_spot}]（${r.map}），已存、立即生效。`; } else $('rp-msg').textContent = errText(r.errors);
       rpDraw(); return;
     }
     RP.down = true; cv.setPointerCapture(e.pointerId); rpPaint(c); rpDraw(); e.preventDefault();
@@ -785,7 +866,7 @@ async function rpSave() {
   const c = document.createElement('canvas'); c.width = RP.w; c.height = RP.h;
   const g = c.getContext('2d'); g.putImageData(new ImageData(new Uint8ClampedArray(RP.safe), RP.w, RP.h), 0, 0);
   const r = await api('api/route_safe', {png: c.toDataURL('image/png')});
-  $('rp-msg').textContent = r.ok ? '安全路線已存（bot 2 秒內換用）：' + Object.entries(r.pixels).map(([k, v]) => `${k} ${v} 格`).join('、') : '沒存：' + Object.values(r.errors || {}).join('；');
+  $('rp-msg').textContent = r.ok ? '安全路線已存（2 秒內換用）：' + Object.entries(r.pixels).map(([k, v]) => `${COMMAND_CN_JS(k)} ${v} 格`).join('、') : '沒存：' + Object.values(r.errors || {}).join('；');
 }
 function rpClear() { if (confirm('清空畫布（還沒存）？')) { RP.safe = new Uint8ClampedArray(RP.w * RP.h * 4); rpDraw(); } }
 async function rpDelete() { if (!confirm('刪除這張地圖的安全路線（留 .bak）？')) return; await api('api/route_safe', {delete: true}); rpLoad(); }
@@ -820,7 +901,7 @@ function ntScrollTo() {
 async function ntSnap() {
   $('nt-msg').textContent = '取畫面中…';
   const r = await api('api/nametag/snapshot', {});
-  if (!r.ok) { $('nt-msg').textContent = JSON.stringify(r.errors); return; }
+  if (!r.ok) { $('nt-msg').textContent = errText(r.errors); return; }
   NT = r; NTRECT = r.proposal;
   $('nt-area').hidden = false;
   const img = $('nt-img');
@@ -848,6 +929,8 @@ async function ntDelete() {
   ntStatus();
 }
 
+try { if (localStorage.getItem('msbot_adv') === '1') { $('adv').checked = true; document.body.classList.add('adv'); } } catch (e) {}
+$('adv').onchange = () => { document.body.classList.toggle('adv', $('adv').checked); try { localStorage.setItem('msbot_adv', $('adv').checked ? '1' : '0'); } catch (e) {} };
 loadConfig();
 poll();
 setInterval(poll, 1000);
