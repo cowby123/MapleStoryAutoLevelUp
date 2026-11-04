@@ -34,6 +34,7 @@ from src.utils.resolution import (compute_scale, apply_scale, snapshot_base,
 from src.utils.nametag import NametagTracker, default_dir as nametag_default_dir
 from src.engine.HuntCycle import HuntCycle
 from src.utils.attack_shape import wedge_test, wedge_polygon
+from src.engine.AoeAttack import AoeCounter, merge_boxes, count_in_area, area_polygons, aoe_params
 from src.engine.explain import explain
 from src.engine.RuneCurse import CurseDetector, find_guide_arrow, FrameCapture
 from src.engine.RuneGame import read_minigame, sequence_text
@@ -1508,6 +1509,18 @@ class MapleStoryAutoBot:
                 (0, 0, 255), "Attack Range(Right)"
             )
 
+        # AoE area (attack.mode 群體 / 自動) and its count
+        if self.attack_mode() != "single" and tuple(self.loc_player) != (0, 0):
+            c = getattr(self, "aoe_count", None) or {}
+            for fl, pts in area_polygons(self.loc_player[0], self.loc_player[1], aoe_params(self.cfg)):
+                cv2.polylines(self.img_frame_debug, [np.array(pts, np.int32)], True, (255, 255, 0),
+                              2 if self.cmd_action == "aoe" else 1)
+            n = max(c.get("left", 0), c.get("right", 0))
+            cv2.putText(self.img_frame_debug,
+                        f"AoE area: {n} (min {(self.cfg.get('attack') or {}).get('aoe_min_count', 3)})",
+                        (int(self.loc_player[0]) - 60, int(self.loc_player[1]) + 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+
         # Draw minimap rectangle on img debug
         draw_rectangle(
             self.img_frame_debug,
@@ -2011,6 +2024,11 @@ class MapleStoryAutoBot:
             if self.monsters:
                 self.det_counts["monsters"] += 1
 
+        # 單體 / 群體 / 自動: count the monsters in the AoE area every frame
+        amode = self.attack_mode()
+        if amode != "single":
+            self.update_aoe_count()
+
         # Check if no mob to attack
         if len(self.monsters) == 0:
             if self.cfg["bot"]["attack"] == "directional":
@@ -2024,6 +2042,14 @@ class MapleStoryAutoBot:
                 self.t_last_attack = time.time()
 
         elif self.cfg["bot"]["attack"] == "directional":
+            if amode != "single":
+                r = self.try_aoe(amode)
+                if r in ("fired", "wait"):
+                    return
+                if r == "none" and amode == "aoe":
+                    # 群體 only: nothing in the area, no single attack
+                    self.stand_while_target(None, None, None, False)
+                    return
             # Get nearest monster to player
             monster_left  = self.get_nearest_monster(is_left = True)
             monster_right = self.get_nearest_monster(is_left = False)
@@ -2049,6 +2075,98 @@ class MapleStoryAutoBot:
                 self.back_off_from_dead_zone()
             else:
                 self.why("attack_cooldown", dir=attack_direction)
+
+    def attack_mode(self):
+        '''
+        attack.mode: single (as before) | aoe | auto. Only with bot.attack
+        "directional" (bot.attack "aoe_skill" is upstream's AoE-only mode).
+        '''
+        if self.cfg["bot"]["attack"] != "directional":
+            return "single"
+        m = (self.cfg.get("attack") or {}).get("mode", "single")
+        return m if m in ("aoe", "auto") else "single"
+
+    def update_aoe_count(self):
+        '''
+        Monsters inside the AoE area (merged boxes), per facing side, into the
+        jitter window (attack.aoe_count_window_s, max / median)
+        '''
+        a = self.cfg.get("attack") or {}
+        p = aoe_params(self.cfg)
+        boxes = merge_boxes([self.monster_box(m) for m in self.monsters], int(a.get("aoe_merge_px", 30)))
+        left, right = count_in_area(self.loc_player[0], self.loc_player[1], boxes, p)
+        if not hasattr(self, "aoe_counter"):
+            self.aoe_counter = AoeCounter()
+        self.aoe_counter.add(left, right)
+        sl, sr = self.aoe_counter.value(float(a.get("aoe_count_window_s", 0.3)), a.get("aoe_count_stat", "max"))
+        self.aoe_count = {"left": sl, "right": sr, "raw": [left, right], "merged": len(boxes),
+                          "directional": p["shape"] != "box"}
+        return sl, sr
+
+    def try_aoe(self, mode):
+        '''
+        Cast the AoE skill when enough monsters are in its area.
+        Returns "fired", "wait" (群體: cooldown, stand), "none" (too few),
+        "single" (自動: too few or AoE cooling down -> single attack),
+        "fallback" (no AoE key / MP under the floor -> single attack).
+        '''
+        a = self.cfg.get("attack") or {}
+        c = getattr(self, "aoe_count", None) or {"left": 0, "right": 0, "directional": False}
+        directional = c["directional"]
+        if directional:
+            if c["left"] != c["right"]:
+                side = "left" if c["left"] > c["right"] else "right"
+            else:
+                side = getattr(self, "target_side", None) or ("left" if self.cmd_move_x == "left" else "right")
+            n = max(c["left"], c["right"])
+        else:
+            side, n = None, c["left"]
+        need = 1 if mode == "aoe" else max(1, int(a.get("aoe_min_count", 3)))
+        key = self.cfg["key"].get("aoe_skill", "")
+        info = {"mode": mode, "n": n, "need": need, "key": key, "side": side}
+        if n < need:
+            self.why("aoe_count", reason="count", **info)
+            return "none" if mode == "aoe" else "single"
+        if not key:
+            self.why("aoe_count", reason="no_key", **info)
+            return "fallback"
+        floor = float(a.get("aoe_mp_floor", 0) or 0)
+        hm = self.health_monitor
+        mp = getattr(hm, "mp_percent", None) if hm is not None else None
+        if floor > 0 and mp is not None and mp < floor:
+            self.why("aoe_count", reason="mp", mp=round(float(mp), 1), floor=floor, **info)
+            return "fallback"
+        now = time.time()
+        cd = float(a.get("aoe_cooldown", 1.0))
+        left_cd = cd - (now - getattr(self, "t_last_aoe", 0.0))
+        da = self.cfg["directional_attack"]
+        stand = da.get("stand_while_target", False)
+        if left_cd > 0:
+            self.why("aoe_count", reason="cooldown", left=round(left_cd, 2), **info)
+            if mode == "auto":
+                return "single"
+            if stand:
+                self.cmd_move_x, self.cmd_action = "none", "none"
+                if not self.is_on_ladder:
+                    self.cmd_move_y = "none"
+            return "wait"
+        self.cmd_action = "aoe"
+        self.cmd_move_x = side if side else ("none" if stand else self.cmd_move_x)
+        if stand and not self.is_on_ladder:
+            self.cmd_move_y = "none"
+        self.t_last_aoe = self.t_last_attack = now
+        if stand:
+            # keep standing between casts like between single shots
+            if side:
+                if side != getattr(self, "target_side", None):
+                    self.t_target_side = now
+                self.target_side = side
+            elif getattr(self, "target_side", None) is None:
+                self.target_side, self.t_target_side = ("left" if self.cmd_move_x == "left" else "right"), now
+            self.t_target_seen = now
+        self.aoe_casts = getattr(self, "aoe_casts", 0) + 1
+        self.why("aoe_attack", **info)
+        return "fired"
 
     def stand_while_target(self, attack_direction, monster_left, monster_right, ready):
         '''
@@ -2907,7 +3025,7 @@ class MapleStoryAutoBot:
                     self.update_cmd_by_mob_detection()
                 finally:
                     self.cfg["directional_attack"]["dead_zone_action"] = dza
-            if self.cmd_action != "attack":
+            if self.cmd_action not in ("attack", "aoe"):
                 self.cmd_move_x = "none"                                      # stand; only turn to shoot
             self.cmd_move_y = "none"
             self.kb.set_command(f"{self.cmd_move_x} {self.cmd_move_y} {self.cmd_action}")

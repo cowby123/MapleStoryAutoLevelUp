@@ -73,6 +73,24 @@ aoe_skill:
   range_y: 170               # ↕️ Vertical skill range (in pixels)
   cooldown: 0.05             # TODO: Currently just a filler
 
+attack:
+  # 單體 / 群體 / 自動 (wingpu): with bot.attack "directional", choose between the
+  # directional attack and the AoE skill (key.aoe_skill) by how many monsters
+  # are inside the AoE skill's area.
+  mode: "single"             # single 單體 (as before) | aoe 群體 (AoE only) | auto 自動（依數量）
+  aoe_min_count: 3           # auto: AoE when at least this many monsters are in the area
+  aoe_cooldown: 1.0          # seconds between AoE casts (single attacks in between in auto)
+  aoe_mp_floor: 0            # % MP: below it no AoE, single attack instead (0 = off; needs health_monitor)
+  aoe_shape: "box"           # box: aoe_skill.range_x x range_y around the character | front: box in front | wedge
+  aoe_front_start: 0         # front / wedge: area starts this far in front (reference px)
+  aoe_front_range: 300       # front / wedge: area depth (reference px)
+  aoe_height: 170            # front: area height (reference px)
+  aoe_dy: 0                  # area centre below the bot's player position (reference px, - = up)
+  aoe_wedge_slope: 4         # wedge: 1 px up and down every this many px forward
+  aoe_count_window_s: 0.3    # count = max (or median) over this long (detection jitter)
+  aoe_count_stat: "max"      # max | median
+  aoe_merge_px: 30           # detections closer than this are one monster (reference px)
+
 health_monitor:
   # ❤️ Health Monitor
   # Automatically drinks HP/MP potions when health or mana drops below a threshold.

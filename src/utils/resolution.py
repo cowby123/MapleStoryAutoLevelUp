@@ -117,6 +117,8 @@ _LENGTHS = [
     ("directional_attack", "wedge_start"), ("directional_attack", "wedge_range"),
     ("directional_attack", "wedge_center_height"), ("directional_attack", "wedge_feet_offset"),
     ("aoe_skill", "range_x"), ("aoe_skill", "range_y"),
+    ("attack", "aoe_front_start"), ("attack", "aoe_front_range"), ("attack", "aoe_height"),
+    ("attack", "aoe_dy"), ("attack", "aoe_merge_px"),
     ("nametag", "split_width"),
     ("character", "width"), ("character", "height"),
     ("monster_detect", "search_box_margin"),

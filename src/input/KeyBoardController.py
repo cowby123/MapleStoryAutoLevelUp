@@ -316,6 +316,12 @@ class KeyBoardController():
             elif self.cmd_action == "attack":
                 press_key(self.attack_key)
                 self.t_last_skill = time.time()
+            elif self.cmd_action == "aoe":
+                # attack.mode 群體 / 自動: the AoE skill (key.aoe_skill)
+                if self.cfg["key"].get("aoe_skill"):
+                    press_key(self.cfg["key"]["aoe_skill"])
+                self.t_last_skill = time.time()
+                self.cmd_action = "none"  # once per cast (attack.aoe_cooldown paces them)
             elif self.cmd_action == "add_hp":
                 press_key(self.cfg["key"]["add_hp"])
                 self.cmd_action = "none"  # Reset command

@@ -75,6 +75,19 @@ FIELDS = [
     ("directional_attack", "wedge_feet_offset", "int", (-50, 100)),
     ("directional_attack", "dead_zone_action", "choice", ["ignore", "back_off"]),
     ("directional_attack", "stand_while_target", "bool", None),
+    # 單體 / 群體 / 自動 (src/engine/AoeAttack.py)
+    ("attack", "mode", "choice", ["single", "aoe", "auto"]),
+    ("attack", "aoe_min_count", "int", (1, 30)),
+    ("attack", "aoe_cooldown", "num", (0, 120)),
+    ("attack", "aoe_mp_floor", "num", (0, 100)),
+    ("attack", "aoe_shape", "choice", ["box", "front", "wedge"]),
+    ("attack", "aoe_front_start", "int", (0, 1000)),
+    ("attack", "aoe_front_range", "int", (10, 1500)),
+    ("attack", "aoe_height", "int", (10, 800)),
+    ("attack", "aoe_dy", "int", (-300, 300)),
+    ("attack", "aoe_wedge_slope", "num", (1, 20)),
+    ("attack", "aoe_count_window_s", "num", (0, 3)),
+    ("attack", "aoe_count_stat", "choice", ["max", "median"]),
     ("route", "jump_runup", "bool", None),
     ("curse", "stop_while_cursed", "bool", None),
     ("curse", "action", "choice", ["stop", "safe_spot"]),
@@ -351,6 +364,11 @@ class WebUI:
             path = self.nametag_path()
             if not os.path.exists(path):
                 errors["player_detect.mode"] = "還沒有名牌模板：先用「截取名牌」截一張，再選名牌 / 自動"
+        amode = (clean.get("attack") or {}).get("mode")
+        if amode in ("aoe", "auto"):
+            k = (clean.get("key") or {}).get("aoe_skill", _get(self.control.cfg_unscaled(), "key", "aoe_skill"))
+            if not k:
+                errors["attack.mode"] = "群體 / 自動要先設「範圍技鍵」"
         m = (clean.get("bot") or {}).get("map") or _get(self.control.cfg_unscaled(), "bot", "map")
         routes = (clean.get("route") or {}).get("files")
         if routes and m in maps:

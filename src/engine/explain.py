@@ -161,6 +161,29 @@ def explain(bot, rec, now):
     if "stuck_random" in kinds:
         t = bot.cfg["watchdog"]["timeout"]
         return "stuck", f"卡住 {t:g} 秒沒移動 → 隨機動作", details
+    if "aoe_attack" in kinds:
+        w = kinds["aoe_attack"]
+        key = str(w.get("key") or "").upper()
+        side = f"，面向{DIR.get(w.get('side'), '')}邊" if w.get("side") else ""
+        if w.get("mode") == "aoe":
+            return "aoe_cast", f"群體技能：範圍內 {w.get('n')} 隻（{key}）{side}", details
+        return "aoe_cast", f"群體技能：範圍內 {w.get('n')} 隻 ≥ {w.get('need')}（{key}）{side}", details
+    aoe = kinds.get("aoe_count")
+    aoe_pre = ""
+    if aoe:
+        r = aoe.get("reason")
+        if r == "count":
+            aoe_pre = f"單體攻擊：範圍內 {aoe.get('n')} 隻 < {aoe.get('need')}"
+        elif r == "cooldown":
+            if aoe.get("mode") == "aoe":
+                return "aoe_wait", f"群體技能冷卻中，再 {aoe.get('left', 0):.1f} 秒（範圍內 {aoe.get('n')} 隻）", details
+            aoe_pre = f"群體技能冷卻中（範圍內 {aoe.get('n')} 隻），先單體攻擊"
+        elif r == "mp":
+            aoe_pre = f"MP {aoe.get('mp')}% 低於 {aoe.get('floor'):g}%，不用群體技能，改單體攻擊"
+        elif r == "no_key":
+            aoe_pre = "沒設群體技能鍵，改單體攻擊"
+        if aoe_pre and "attack_target" not in kinds:
+            details.insert(0, aoe_pre)
     if "attack_target" in kinds:
         w = kinds["attack_target"]
         d = w.get("dir")
@@ -171,7 +194,10 @@ def explain(bot, rec, now):
             if bot.wedge_params() is not None:
                 dist += "，扇形內"
         name = _mob_name(bot, w.get("name"))
-        return f"attack_{d}", f"攻擊{DIR.get(d, '')}邊的{name}" + (f"（{dist}）" if dist else ""), details
+        main = f"攻擊{DIR.get(d, '')}邊的{name}" + (f"（{dist}）" if dist else "")
+        if aoe_pre:
+            main = f"{aoe_pre}：{main}"
+        return f"attack_{d}", main, details
     if "stand_target" in kinds:
         w = kinds["stand_target"]
         if w.get("waiting") == "cooldown":
