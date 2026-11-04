@@ -56,6 +56,14 @@ from src.states.solving_rune import SolvingRuneState
 from src.states.auxiliary import AuxiliaryState
 from src.states.patrol import PatrolState
 
+def colour_stats(img, mask):
+    '''(mean HSV saturation, mean R - mean B) of img under mask'''
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    sat = cv2.mean(hsv[:, :, 1], mask=mask)[0]
+    b, _, r, _ = cv2.mean(img, mask=mask)
+    return float(sat), float(r - b)
+
+
 class MapleStoryAutoBot:
     '''
     MapleStoryAutoBot
@@ -321,6 +329,7 @@ class MapleStoryAutoBot:
         # its HTTP thread while the bot loop uses the templates (a half-built
         # dict raised KeyError ('pig', 6) in the loop on 2026-11-02)
         monsters_info, monster_contour, monster_color, monster_color_pre = {}, {}, {}, {}
+        monster_color_stats = {}
         blur = self.cfg["monster_detect"]["contour_blur"]
         for name, imgs in self.tpl_src.get("monsters", {}).items():
             pairs = []
@@ -355,12 +364,14 @@ class MapleStoryAutoBot:
                     im_ds = cv2.resize(im, size, interpolation=cv2.INTER_AREA)
                     mk_ds = cv2.resize(mk_ds, size, interpolation=cv2.INTER_NEAREST)
                 monster_color[(name, i)] = (im_ds, mk_ds)
+                monster_color_stats[(name, i)] = colour_stats(im_ds, mk_ds)
                 if self.cfg["monster_detect"].get("color_prefilter", False):
                     size = (max(1, im_ds.shape[1] // 2), max(1, im_ds.shape[0] // 2))
                     monster_color_pre[(name, i)] = (
                         cv2.resize(im_ds, size, interpolation=cv2.INTER_AREA),
                         cv2.resize(mk_ds, size, interpolation=cv2.INTER_NEAREST))
         self.monster_contour, self.monster_color, self.monster_color_pre =             monster_contour, monster_color, monster_color_pre
+        self.monster_color_stats = monster_color_stats
         self.monsters_info = monsters_info
         sizes = [im.shape[:2] for pairs in self.monsters_info.values() for im, _ in pairs]
         self.monster_min_area = min((h * w for h, w in sizes), default=0)
@@ -373,6 +384,51 @@ class MapleStoryAutoBot:
         self.img_login_button = scale_template(self.tpl_src["login_button"], s, key=None)
         if self.rune_solver is not None:
             self.rune_solver.set_scale(s)
+
+    def colour_ok(self, name, i_tpl, patch, mask):
+        '''
+        monster_detect.color_min_sat_ratio (patch saturation / template's) and
+        color_min_rb_diff ((R - B) of the patch minus the template's), per
+        monster; 0 / None = off. 2026-11-05 gon_pig (event, pet): true pigs
+        ratio >= 0.57, R-B >= -19; light pillar 0.43-0.46 / -23; white rabbit
+        0.37 / -42.
+        '''
+        min_sat = float(self.md_per_monster("color_min_sat_ratio", name, 0) or 0)
+        min_rb = self.md_per_monster("color_min_rb_diff", name, None)
+        if min_sat <= 0 and min_rb is None:
+            return True
+        st = self.monster_color_stats.get((name, i_tpl))
+        if st is None or patch.shape[:2] != mask.shape[:2]:
+            return True
+        sat, rb = colour_stats(patch, mask)
+        if min_sat > 0 and st[0] > 1 and sat / st[0] < min_sat:
+            return False
+        if min_rb is not None and rb - st[1] < float(min_rb):
+            return False
+        return True
+
+    def pet_tag_below(self, m):
+        '''
+        True when a light grey name box (pets: 「白色兔子」; monsters' and
+        players' name boxes are dark) sits centred right under the detection
+        '''
+        x, y, w, h = self.monster_box(m)
+        s = self.scale
+        img = self.img_frame
+        y0, y1 = max(0, y + h - sc(8, s)), min(img.shape[0], y + h + sc(34, s))
+        x0, x1 = max(0, x - sc(20, s)), min(img.shape[1], x + w + sc(20, s))
+        if y1 - y0 < 4 or x1 - x0 < 4:
+            return False
+        band = img[y0:y1, x0:x1]
+        lo, hi = band.min(axis=2), band.max(axis=2)
+        light = ((lo >= 195) & (hi.astype(np.int16) - lo <= 30)).astype(np.uint8)
+        n, _, stats, cent = cv2.connectedComponentsWithStats(light, connectivity=8)
+        for k in range(1, n):
+            bx, by, bw, bh, area = stats[k]
+            if bw >= sc(36, s) and sc(9, s) <= bh <= sc(24, s) and area >= 0.45 * bw * bh and \
+                    abs(x0 + bx + bw / 2 - (x + w / 2)) <= w / 3:
+                return True
+        return False
 
     def md_per_monster(self, key, name, default):
         '''
@@ -1240,6 +1296,11 @@ class MapleStoryAutoBot:
                             _, std = cv2.meanStdDev(cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY), mask=mask_c)
                             if float(std[0][0]) < min_std:
                                 continue
+                        # colour check (per monster): pale things the pig templates
+                        # match -- a white pet rabbit, the portal's light pillar --
+                        # have far less saturation / red than the sprite
+                        if not self.colour_ok(monster_name, i_tpl, img_roi_ds[pt[1]:pt[1] + th, pt[0]:pt[0] + tw], mask_c):
+                            continue
                         monsters.append({
                             "name": monster_name,
                             "position": (int(pt[0]) * ds + x0, int(pt[1]) * ds + y0),
@@ -1254,6 +1315,9 @@ class MapleStoryAutoBot:
         # (SQDIFF scores: keep the lowest of overlapping boxes; upstream kept the worst)
         monsters = nms(monsters, iou_threshold=0.4,
                        lower_is_better=self.cfg["monster_detect"]["mode"] != "template_free")
+        # a light name box right under a hit = a pet (白色兔子), not a monster
+        if self.cfg["monster_detect"].get("reject_pet_tag", False):
+            monsters = [m for m in monsters if not self.pet_tag_below(m)]
 
         # Detect monster via health bar
         if self.cfg["monster_detect"]["with_enemy_hp_bar"]:

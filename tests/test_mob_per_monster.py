@@ -82,7 +82,34 @@ def test_bears_found():
     assert hit >= 0.88 * n and res["false_pos"] <= 2, res
 
 
+def test_pig_pet_and_portal():
+    '''gon_pig 2026-11-05: the pet rabbit (light name box under it) and the
+    portal's light pillar are not pigs; the real pigs still are'''
+    path = "fixtures/pig2/user_reported_010533.png"
+    if not os.path.exists(path):
+        print("  (no fixtures, skipped)")
+        return
+    import cv2
+    T.OVERRIDES.clear()
+    T.OVERRIDES["bot.map"] = "gon_pig"
+    bot = T.make_bot("wingpu_maple")
+    T.OVERRIDES.clear()
+    bot.on_resolution(768, 1366)
+    bot.img_frame = cv2.imread(path)
+    assert bot.pet_tag_below({"position": (1058, 426), "size": (48, 71)})       # the rabbit
+    assert not bot.pet_tag_below({"position": (788, 488), "size": (48, 71)})    # a pig
+    for f, real in (("f20261105_010258_050.png", (1225, 349)), ):
+        img = cv2.imread("fixtures/pig2/" + f)
+        bot.img_frame, bot.img_frame_debug, bot.loc_player = img, img.copy(), (885, 449)
+        mons = bot.get_monsters_in_range((500, 300), (1366, 600))
+        assert not any(abs(m["position"][0] - real[0]) < 20 and abs(m["position"][1] - real[1]) < 20 for m in mons), mons
+    img = cv2.imread(path)
+    bot.img_frame, bot.img_frame_debug, bot.loc_player = img, img.copy(), (983, 452)
+    mons = bot.get_monsters_in_range((0, 90), (1366, 673))
+    assert any(abs(m["position"][0] - 788) < 10 for m in mons), mons      # the pig on the step
+
+
 if __name__ == "__main__":
-    for t in (test_values, test_masks, test_bears_found):
+    for t in (test_values, test_masks, test_bears_found, test_pig_pet_and_portal):
         t()
         print(f"{t.__name__}: ok")
