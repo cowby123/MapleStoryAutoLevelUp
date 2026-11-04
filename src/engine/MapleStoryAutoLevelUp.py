@@ -33,6 +33,7 @@ from src.utils.resolution import (compute_scale, apply_scale, snapshot_base,
     scale_template, sc, MinimapScale, GREEN)
 from src.utils.nametag import NametagTracker, default_dir as nametag_default_dir
 from src.engine.HuntCycle import HuntCycle
+from src.engine.HumanPause import HumanPause
 from src.utils.attack_shape import wedge_test, wedge_polygon
 from src.engine.AoeAttack import AoeCounter, merge_boxes, count_in_area, area_polygons, aoe_params
 from src.engine.explain import explain
@@ -587,6 +588,7 @@ class MapleStoryAutoBot:
 
         # Hunt / rest cycles
         self.hunt_cycle = HuntCycle(self.cfg.get("hunt_cycle"), log=logger.info)
+        self.human_pause = HumanPause(self.cfg.get("human_pause"))
 
         # Reset all timers
         self.t_last_frame = time.time()
@@ -2498,7 +2500,7 @@ class MapleStoryAutoBot:
         '''
         hc = self.hunt_cycle
         if hc is None or not hc.enabled:
-            if self.kb.is_resting or self.kb.no_buffs:
+            if (self.kb.is_resting or self.kb.no_buffs) and not getattr(self, "human_pausing", False):
                 self.kb.is_resting = self.kb.no_buffs = False
             return False
         prev = hc.phase
@@ -2525,7 +2527,8 @@ class MapleStoryAutoBot:
             press_key(self.cfg["key"]["return_home"])
         self.cmd_move_x = self.cmd_move_y = self.cmd_action = "none"
         if phase == "hunt":
-            self.kb.is_resting = self.kb.no_buffs = False
+            if not getattr(self, "human_pausing", False):
+                self.kb.is_resting = self.kb.no_buffs = False
             return False
         if phase == "to_safe":
             self.kb.is_resting = False
@@ -2547,6 +2550,83 @@ class MapleStoryAutoBot:
         self.kb.is_resting = True
         self.kb.set_command("none none none")
         self.monsters = []
+        return True
+
+    def cancel_human_pause(self, why=""):
+        '''end a 類人保護 pause now (the curse / rune needs the keys)'''
+        hp = getattr(self, "human_pause", None)
+        if hp is not None and hp.until is not None:
+            hp.until = None
+            hp.schedule()
+        if getattr(self, "human_pausing", False):
+            self.human_pausing = False
+            self.kb.is_resting = False
+            logger.info(f"[HumanPause] cancelled ({why})")
+
+    def human_pause_risky(self):
+        '''
+        A sequence that must not be cut by a 類人保護 pause: on a rope / ladder,
+        a jump run-up, the rune (curse / mini-game), the minimap grace
+        '''
+        if self.is_on_ladder or self.cmd_move_y == "up":
+            return "ladder"
+        if (getattr(self, "runup_state", None) or {}).get("phase"):
+            return "runup"
+        if (getattr(self, "rune", None) or {}).get("phase") or getattr(self, "minigame", None):
+            return "rune"
+        if getattr(self, "minimap_grace", None) is not None:
+            return "minimap_grace"
+        return None
+
+    def run_human_pause(self, now=None):
+        '''
+        類人保護 (human_pause, default off): on hunting frames, every few random
+        minutes, hold every key for a few random seconds. Potions still work
+        (HealthMonitor; kb.is_resting blocks moves, attacks and buffs). Returns
+        True while pausing. The stuck and no-attack watchdogs do not count the
+        pause.
+        '''
+        hp = getattr(self, "human_pause", None)
+        if hp is None:
+            hp = self.human_pause = HumanPause(self.cfg.get("human_pause"))
+        if not hp.enabled or self.cfg["bot"]["mode"] != "normal":
+            if hp is not None and getattr(self, "human_pausing", False):
+                self.human_pausing = False
+                self.kb.is_resting = False
+            return False
+        now = time.time() if now is None else now
+        risky = self.human_pause_risky()
+        left = hp.tick(risky=bool(risky), now=now)
+        if hp.ended:
+            # resume: the watchdogs start over / skip the pause
+            self.human_pausing = False
+            self.kb.is_resting = False
+            self.t_last_attack += hp.dur
+            self.t_watch_dog = now
+            self.loc_watch_dog = self.loc_player_global
+            if getattr(self, "runup_state", None):
+                self.runup_state = None
+            logger.info(f"[HumanPause] resume after {hp.dur:.1f}s")
+            return False
+        if left <= 0:
+            if hp.deferred:
+                self.why("human_pause_deferred", reason=risky)
+            return False
+        if not getattr(self, "human_pausing", False):
+            self.human_pausing = True
+            logger.info(f"[HumanPause] pause {hp.dur:.1f}s{' (long)' if hp.long else ''}")
+            self.kb.set_command("none none none")
+            self.kb.release_all_key()
+            if is_wingpu():
+                from src.input.WingpuKeyboard import get_keyboard
+                get_keyboard().release_all()
+        self.kb.is_resting = True
+        self.kb.set_command("none none none")
+        self.cmd_move_x = self.cmd_move_y = self.cmd_action = "none"
+        # the stuck watchdog: standing still on purpose
+        self.t_watch_dog = now
+        self.loc_watch_dog = self.loc_player_global
+        self.why("human_pause", left=round(left, 1), dur=round(hp.dur, 1), long=hp.long)
         return True
 
     def rune_cfg(self):
@@ -3104,6 +3184,8 @@ class MapleStoryAutoBot:
         ###################
         ### Rune curse ###
         ###################
+        if getattr(self, "human_pausing", False) and (self.cursed or (self.rune or {}).get("phase")):
+            self.cancel_human_pause("curse")
         if self.run_rune_curse():
             self.is_first_frame = False
             if self.is_show_debug_window:
@@ -3131,6 +3213,19 @@ class MapleStoryAutoBot:
                 hc = self.hunt_cycle.status()
                 left = f" {hc['remaining_s']:.0f}s" if hc["remaining_s"] is not None else ""
                 cv2.putText(self.img_frame_debug, f"CYCLE: {hc['phase']}{left}",
+                            (10, sc(400, self.scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+                self.update_info_on_img_frame_debug()
+                self.img_frame_debug_done = self.img_frame_debug
+            self.t_last_frame = time.time()
+            return 0
+
+        ##########################
+        ### 類人保護 (human_pause) ###
+        ##########################
+        if self.run_human_pause():
+            self.is_first_frame = False
+            if self.is_show_debug_window:
+                cv2.putText(self.img_frame_debug, f"PAUSE (human): {self.human_pause.status()['left_s']}s",
                             (10, sc(400, self.scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
                 self.update_info_on_img_frame_debug()
                 self.img_frame_debug_done = self.img_frame_debug

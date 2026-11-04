@@ -73,6 +73,17 @@ aoe_skill:
   range_y: 170               # ↕️ Vertical skill range (in pixels)
   cooldown: 0.05             # TODO: Currently just a filler
 
+human_pause:
+  # 類人保護 (wingpu): every few random minutes of hunting, hold every key for a
+  # few random seconds; potions still work. Not in the middle of a rope climb,
+  # a jump run-up or the rune (waits until it is over).
+  enable: False
+  interval_minutes: [3, 7]   # minutes of hunting between pauses (random each time)
+  pause_seconds: [3, 5]      # pause length (random)
+  long_enable: False         # sometimes a longer pause
+  long_chance_percent: 10    # % of the pauses that are long
+  long_seconds: [8, 15]
+
 attack:
   # 單體 / 群體 / 自動 (wingpu): with bot.attack "directional", choose between the
   # directional attack and the AoE skill (key.aoe_skill) by how many monsters

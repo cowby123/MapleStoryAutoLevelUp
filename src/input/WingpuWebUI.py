@@ -88,6 +88,13 @@ FIELDS = [
     ("attack", "aoe_count_window_s", "num", (0, 3)),
     ("attack", "aoe_count_stat", "choice", ["max", "median"]),
     ("route", "jump_runup", "bool", None),
+    # 類人保護 (src/engine/HumanPause.py)
+    ("human_pause", "enable", "bool", None),
+    ("human_pause", "interval_minutes", "range", (0.5, 120)),
+    ("human_pause", "pause_seconds", "range", (1, 60)),
+    ("human_pause", "long_enable", "bool", None),
+    ("human_pause", "long_chance_percent", "int", (1, 100)),
+    ("human_pause", "long_seconds", "range", (2, 120)),
     ("curse", "stop_while_cursed", "bool", None),
     ("curse", "action", "choice", ["stop", "safe_spot"]),
     ("detection_lost", "minimap_grace_s", "num", (0, 120)),
@@ -469,6 +476,11 @@ class WebUI:
         hc = getattr(bot, "hunt_cycle", None)
         if hc is not None and "hunt_cycle" in clean:
             hc.reconfigure(cfg.get("hunt_cycle"))
+        hp = getattr(bot, "human_pause", None)
+        if hp is not None and "human_pause" in clean:
+            hp.reconfigure(cfg.get("human_pause"))
+            if not hp.enabled:
+                bot.cancel_human_pause("turned off")
         return live, restart
 
     ##########################

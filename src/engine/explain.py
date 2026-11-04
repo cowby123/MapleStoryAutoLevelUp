@@ -154,6 +154,16 @@ def explain(bot, rec, now):
             return "wait_window", "不在每日時段內，停手中", details
         if ph == "ended":
             return "ended", f"已結束：{hc.get('ended_why', '')}", details
+    if "human_pause" in kinds:
+        w = kinds["human_pause"]
+        hp = getattr(bot, "human_pause", None)
+        details.insert(0, f"這次停 {w.get('dur', 0):.1f} 秒" + ("（偶爾停久一點）" if w.get("long") else "")
+                       + "；結束後照常練功，下一次在幾分鐘後（隨機）")
+        return "human_pause", f"類人保護：暫停操作 {w.get('left', 0):.1f} 秒（只補血）", details
+    if "human_pause_deferred" in kinds:
+        why = {"ladder": "在爬繩子 / 梯子", "runup": "在助跑跳", "rune": "在處理符文",
+               "minimap_grace": "小地圖被擋住"}.get(kinds["human_pause_deferred"].get("reason"), "")
+        details.append(f"類人保護：時間到了，等{why}結束再停")
     if "jump_runup" in kinds:
         step = {"start": 1, "back": 1, "approach": 2, "jump": 3}.get(kinds["jump_runup"].get("phase"), 1)
         word = {1: "往回走", 2: "跑回牆邊", 3: "起跳"}[step]

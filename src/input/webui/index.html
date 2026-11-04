@@ -355,6 +355,13 @@ const LABELS = {
   'hunt_cycle.session_hours': ['總共玩幾小時後結束', '0 = 不限'],
   'hunt_cycle.window_start': ['每天開始時間', '時:分，空白 = 不限'],
   'hunt_cycle.window_end': ['每天結束時間', '時:分，可跨午夜，例：22:00～02:00'],
+  // 類人保護
+  'human_pause.enable': ['類人保護', '練功時每隔幾分鐘（隨機）停手幾秒，像真人休息一下：放開所有鍵，不攻擊、不移動、不放增益技能，只在血 / 魔低於門檻時喝水；爬繩子、助跑跳、解符文時會等它做完再停'],
+  'human_pause.interval_minutes': ['間隔（分鐘）', '兩次停頓之間練功多久，最少～最多，每次隨機；例：3～7'],
+  'human_pause.pause_seconds': ['停頓長度（秒）', '每次停多久，最少～最多，每次隨機；例：3～5'],
+  'human_pause.long_enable': ['偶爾停久一點', '有一定機率停比較久'],
+  'human_pause.long_chance_percent': ['停久一點的機率（%）', '例：10 = 十次裡約一次'],
+  'human_pause.long_seconds': ['停久一點時停多久（秒）', '最少～最多；例：8～15'],
   // 安全與其他
   'route.jump_runup': ['跳不上平台時退後助跑', '路線叫你往右 / 左跳、但一直在原地跳（貼著牆、沒有速度）：先往回走幾格，再跑過去起跳'],
   'route.jump_stuck_s': ['原地跳幾秒算卡住（秒）', '一般 2'],
@@ -425,6 +432,7 @@ const GROUPS = [
   ['攻擊（單體）', ['directional_attack.stand_while_target', 'directional_attack.target_hold_s', 'directional_attack.target_commit_s', 'directional_attack.shape', 'directional_attack.wedge_preset', 'directional_attack.wedge_skill_level', 'directional_attack.wedge_start', 'directional_attack.wedge_range', 'directional_attack.wedge_slope', 'directional_attack.wedge_center_height', 'directional_attack.wedge_feet_offset', 'directional_attack.dead_zone_action', 'directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown']],
   ['群體技能（依怪物數量）', ['attack.mode', 'attack.aoe_min_count', 'attack.aoe_cooldown', 'attack.aoe_shape', 'aoe_skill.range_x', 'aoe_skill.range_y', 'attack.aoe_front_start', 'attack.aoe_front_range', 'attack.aoe_height', 'attack.aoe_wedge_slope', 'attack.aoe_dy', 'attack.aoe_count_window_s', 'attack.aoe_count_stat']],
   ['找怪', ['monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search', 'monster_detect.search_box_margin', 'monster_detect.roi_left', 'monster_detect.roi_right', 'monster_detect.roi_up', 'monster_detect.roi_down', 'monster_detect.interval_frames']],
+  ['類人保護', ['human_pause.enable', 'human_pause.interval_minutes', 'human_pause.pause_seconds', 'human_pause.long_enable', 'human_pause.long_chance_percent', 'human_pause.long_seconds']],
   ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
   ['安全與其他', ['route.jump_runup', 'route.jump_stuck_s', 'route.jump_runup_back_px', 'edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'detection_lost.minimap_grace_s', 'system.fps_limit_main']],
   ['符文 / 詛咒', ['curse.stop_while_cursed', 'curse.action', 'rune_curse.enable', 'rune_curse.seek_timeout', 'rune_curse.interact_key', 'rune_curse.interact_every_px', 'rune_curse.interact_cooldown', 'rune_curse.resume', 'rune_curse.rest_minutes', 'rune_curse.minigame_wait', 'rune_curse.minigame_retries', 'rune_curse.capture_frames', 'rune_curse.capture_interval', 'rune_curse.capture_max']],
@@ -485,6 +493,11 @@ const DEPS = {
   'route.jump_runup_back_px': v => v['route.jump_runup'],
   'directional_attack.target_commit_s': v => v['directional_attack.stand_while_target'],
   'monster_detect.search_box_margin': v => v['monster_detect.search'] === 'attack',
+  'human_pause.interval_minutes': v => v['human_pause.enable'],
+  'human_pause.pause_seconds': v => v['human_pause.enable'],
+  'human_pause.long_enable': v => v['human_pause.enable'],
+  'human_pause.long_chance_percent': v => v['human_pause.enable'] && v['human_pause.long_enable'],
+  'human_pause.long_seconds': v => v['human_pause.enable'] && v['human_pause.long_enable'],
   'aoe_skill.cooldown': v => v['bot.attack'] === 'aoe_skill',
   // 群體技能: only the sizes of the chosen area
   'attack.aoe_min_count': v => v['attack.mode'] === 'auto',

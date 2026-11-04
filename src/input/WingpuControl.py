@@ -281,6 +281,16 @@ class WingpuControl:
         self.status = status
         return status
 
+    def human_pause_chip(self):
+        hp = getattr(self.bot, "human_pause", None)
+        st = hp.status() if hp is not None else {}
+        if st.get("pausing"):
+            return f"類人保護（停頓中 {st.get('left_s')} 秒）"
+        n = st.get("next_in_s")
+        if n is None:
+            return "類人保護"
+        return f"類人保護（約 {int(n) // 60} 分 {int(n) % 60:02d} 秒後停一下）"
+
     def features(self):
         '''
         Optional behaviours and whether they are on (the page's 已啟用功能 summary)
@@ -310,6 +320,7 @@ class WingpuControl:
             {"id": "edge", "cn": "平台邊緣跳回", "on": g("edge_teleport", "enable", True)},
             {"id": "party_start", "cn": "開始時檢查組隊", "on": g("wingpu", "ensure_party_on_start")},
             {"id": "mob_full", "cn": "全畫面找怪", "on": md.get("search") == "full"},
+            {"id": "human_pause", "cn": self.human_pause_chip(), "on": g("human_pause", "enable")},
             {"id": "aoe", "cn": "群體技能（" + {"aoe": "只用群體", "auto": "依數量自動"}.get(
                 (c.get("attack") or {}).get("mode"), "") + "）",
              "on": (c.get("attack") or {}).get("mode") in ("aoe", "auto")},

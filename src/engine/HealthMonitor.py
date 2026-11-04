@@ -193,6 +193,12 @@ class HealthMonitor:
                         self.kb.is_need_force_heal = True
                     else:
                         self.kb.is_need_force_heal = False
+                    # the keyboard controller does the forced heal, but sends
+                    # nothing while resting (hunt-cycle rest, 類人保護): drink here
+                    if getattr(self.kb, "is_resting", False) and self.hp_percent < hp_thres and \
+                            t_cur - self.t_last_heal > hp_cd:
+                        self._heal()
+                        self.t_last_heal = t_cur
                 else:
                     if (self.hp_percent <= hp_thres and
                         t_cur - self.t_last_heal > hp_cd):
