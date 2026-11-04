@@ -338,6 +338,17 @@ class MapleStoryAutoBot:
                 monster_contour[(name, i)] = tb
                 # colour template + mask at 1/ds for "color" mode
                 im_ds, mk_ds = im, pairs[i][1]
+                # The sprites' outline pixels are half transparent in the game
+                # (blended with the background, and the frame is scaled by s);
+                # in the template they are raw colour. Dropping them from the mask
+                # (monster_detect.mask_erode px) took the windup bears on
+                # cloud_balcony from 0.12-0.14 to under 0.10 (tools/wingpu_mob_eval.py).
+                # An int applies to every monster, a dict {monster: px} to those
+                # monsters only (on gon_pig, eroded pig masks also matched stumps
+                # and a waterfall: maple2 fixtures 11 -> 26 frames "with pigs").
+                erode = int(self.md_per_monster("mask_erode", name, 0))
+                if erode > 0:
+                    mk_ds = cv2.erode(mk_ds, np.ones((3, 3), np.uint8), iterations=erode)
                 if ds > 1:
                     size = (max(1, im.shape[1] // ds), max(1, im.shape[0] // ds))
                     im_ds = cv2.resize(im, size, interpolation=cv2.INTER_AREA)
@@ -362,6 +373,17 @@ class MapleStoryAutoBot:
         if self.rune_solver is not None:
             self.rune_solver.set_scale(s)
 
+    def md_per_monster(self, key, name, default):
+        '''
+        monster_detect.<key>: a number for every monster, or a dict
+        {monster: value, "default": value} (per map tuning without touching
+        the other maps' monsters)
+        '''
+        v = self.cfg["monster_detect"].get(key, default)
+        if isinstance(v, dict):
+            v = v.get(name, v.get("default", default))
+        return default if v is None else v
+
     def color_matches(self, img_ds, img_pre, name, i_tpl):
         '''
         "color" mode: (x, y, score) in img_ds pixels where the masked template
@@ -380,7 +402,7 @@ class MapleStoryAutoBot:
         if pre is not None and pre[0].shape[0] <= img_pre.shape[0] and pre[0].shape[1] <= img_pre.shape[1]:
             res = cv2.matchTemplate(img_pre, pre[0], cv2.TM_SQDIFF_NORMED, mask=pre[1])
             res = np.nan_to_num(res, nan=1.0, posinf=1.0, neginf=1.0)
-            cand = (res <= float(self.cfg["monster_detect"].get("color_prefilter_thres", 0.16))).astype(np.uint8)
+            cand = (res <= float(self.md_per_monster("color_prefilter_thres", name, 0.16))).astype(np.uint8)
             if not cand.any():
                 return []
             n, _, stats, _ = cv2.connectedComponentsWithStats(cand, connectivity=8)

@@ -58,8 +58,16 @@ monster_detect:
   black_thres: 30           # contour_only: outline pixel = every channel <= this (0 = exact black, upstream)
   match_downscale: 2        # template matching at 1/2 size (contour_only, color)
   color_prefilter: True     # color: match at 1/4 first, then only around candidates (same hits on the fixtures, ~half the CPU)
-  color_prefilter_thres: 0.16
-  interval_frames: 2        # look for monsters every 2nd frame (5/s at fps_limit_main 10), reuse the result in between
+  # per monster allowed ({monster: v, default: v}); the bears' 1/4 size match is
+  # coarser (0.16 -> 0.2: 67 -> 71 of 76 bears, pigs unchanged since not listed)
+  color_prefilter_thres: {default: 0.16, pink_windup_bear: 0.2, brown_windup_bear: 0.2}
+  # Mask erosion (px) per monster for color mode: the sprites' outline pixels are
+  # blended with the background in the game. 2026-11-04, cloud_balcony, 76
+  # hand-labelled bears in 13 frames (tools/wingpu_mob_eval.py): 0 -> 1 took
+  # recall from 36% to 90%, 0 false positives, same CPU. Not for pigs (eroded
+  # pig masks matched stumps and a waterfall on gon_pig).
+  mask_erode: {pink_windup_bear: 1, brown_windup_bear: 1}
+  interval_frames: 2       # look for monsters every 2nd frame (5/s at fps_limit_main 10), reuse the result in between
   # Where to look (2026-11-02, 49 hunting frames, colour mode): roi (400/400/150/150 around the player)
   # 31 hits, 2 false, 20 ms/frame; full (whole camera area) 139 hits, ~69 false (sky + foliage), 129 ms/frame
   search: "roi"
