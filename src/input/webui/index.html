@@ -36,6 +36,7 @@ label.f span.h{color:var(--mut);font-size:12px}
 input,select{font:inherit;padding:7px 8px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--fg);min-height:38px;width:100%}
 input[type=checkbox]{width:auto;min-height:auto}
 .err{color:var(--bad);font-size:12px}
+.profbar{border:2px solid var(--acc);border-radius:8px;padding:8px 10px;margin:0 0 10px}
 .warn{color:var(--warn);font-size:12px}
 .buffrow .bw{grid-column:1/-1}
 code{overflow-wrap:anywhere}
@@ -113,6 +114,7 @@ section h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   <span id="b-run" class="badge">讀取中…</span>
   <span id="b-lost" class="badge" style="visibility:hidden"></span>
   <span id="b-input" class="badge">模擬（不送輸入）</span>
+  <span id="b-prof" class="badge">角色：…</span>
   <span id="b-pending" class="badge b-warn" style="visibility:hidden">有設定要重新啟動後才生效</span>
   <span id="b-cycle" class="badge" style="visibility:hidden"></span>
 </header>
@@ -244,6 +246,27 @@ section h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
   <section class="wide">
     <h2>設定</h2>
+    <div id="prof" class="profbar">
+      <div class="row">
+        <b>角色設定檔：</b><select id="pf-sel" style="width:auto;max-width:100%"></select>
+        <button type="button" onclick="pfDo('switch')">切換</button>
+        <img id="pf-snip" class="tpl" alt="（還沒綁定角色）" style="height:28px">
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button type="button" onclick="pfCreate(false)">新增（複製目前的）</button>
+        <button type="button" onclick="pfCreate(true)">新增並綁定目前角色</button>
+        <button type="button" onclick="pfDo('bind')">綁定目前角色</button>
+        <button type="button" onclick="pfRename()">改名</button>
+        <button type="button" class="danger" onclick="pfDelete()">刪除</button>
+      </div>
+      <label class="row" style="margin-top:6px"><input type="checkbox" id="f-wingpu-profile_autodetect"> 自動偵測角色：每 5 秒比對畫面左下角的角色名字，換角色時自動載入那個角色的設定（放開按鍵；執行 / 暫停、真的輸入 / 模擬都不變；比對不夠確定時不換）</label>
+      <div class="msg" id="pf-msg"></div>
+      <details class="msg"><summary>哪些設定跟著角色、哪些大家共用</summary>
+        <p>跟著角色（每個設定檔各一份）：按鍵、攻擊方式與射程、群體技能、增益技能、喝水門檻、地圖與路線的選擇、找角色的方式與名牌、練功 / 休息循環、類人保護、符文 / 詛咒選項。<br>
+        大家共用：畫面串流與更新間隔、每秒處理張數（FPS）、真的輸入 / 模擬、找怪的辨識設定、偵測不到時停手的秒數、自動偵測角色開關；地圖本身的資料（路線圖、安全點、安全路線）也是共用的。<br>
+        「儲存」會把共用的寫到 <code id="pf-global"></code>，其他寫到目前的設定檔。「清除我的設定」只清目前的設定檔。</p>
+      </details>
+    </div>
     <p class="msg">存到 <code id="ufile"></code>（最後一層，不改內建設定檔）。像素值是「參考尺寸 1296×700」的值，會依遊戲解析度自動縮放。</p>
     <label class="row msg"><input type="checkbox" id="adv"> 進階：顯示設定名稱（除錯用）</label>
     <form id="form" onsubmit="return false"></form>
@@ -404,6 +427,7 @@ const LABELS = {
   'wingpu.debug_interval': ['狀態 / 偵測圖更新間隔（秒）', '一般 1'],
   'wingpu.redetect_interval': ['重找遊戲視窗間隔（秒）', '一般 5'],
   'wingpu.mjpeg_fps': ['即時畫面每秒幾張（FPS）', '有人在看時才編碼；10 張約 0.06 核 CPU、每秒約 2.5 MB'],
+  'wingpu.profile_autodetect': ['自動偵測角色', '每 5 秒比對畫面左下角的角色名字'],
   'wingpu.mjpeg_scale': ['即時畫面大小', '0.5–1（1 = 原尺寸），小一點比較省；一般 1'],
 };
 // select options in Chinese (the value sent stays the config value)
@@ -588,6 +612,7 @@ async function poll() {
   $('live-sw').checked = LIVE;
   $('sw').className = 'switch' + (LIVE ? ' on' : '');
   $('sw-text').textContent = LIVE ? '真的輸入：練功程式正在對遊戲按鍵' : '模擬模式：不會送任何按鍵到遊戲';
+  if (s.profile) $('b-prof').textContent = '角色：' + (s.profile.name || s.profile.id || '-');
   vis('b-pending', !s.pending_restart);
   const hr = det.hit_rate || {};
   const pct = v => v === undefined ? '-' : Math.round(v * 100) + '%';
@@ -646,8 +671,8 @@ async function pollNow() {
     const n = await (await fetch('./now', {cache: 'no-store'})).json();
     $('now-main').textContent = n.main || '…';
     $('now-main').title = n.main || '';
-    $('now-dry').textContent = n.dry_run ? '試跑：以下動作不會真的送出' : (n.running === false ? '已暫停' : '真的輸入中');
-    $('now-dry').style.color = n.dry_run ? 'var(--warn)' : 'var(--mut)';
+    $('now-dry').textContent = n.profile_note || (n.dry_run ? '試跑：以下動作不會真的送出' : (n.running === false ? '已暫停' : '真的輸入中'));
+    $('now-dry').style.color = n.profile_note ? 'var(--acc)' : n.dry_run ? 'var(--warn)' : 'var(--mut)';
     const det = (n.details || []).join('　·　') + (n.since_s >= 1 ? `　（已 ${n.since_s.toFixed(0)} 秒）` : '');
     $('now-det').textContent = det || '\u00a0';
     $('now-det').title = det;
@@ -750,6 +775,48 @@ function keyDupes() {
   }
 }
 
+// ---------- character profiles ----------
+let PF = null;
+async function pfLoad() {
+  PF = await api('api/profiles');
+  if (!PF || !PF.profiles) return;
+  $('pf-sel').innerHTML = PF.profiles.map(p => `<option value="${esc(p.id)}" ${p.active ? 'selected' : ''}>${esc(p.name)}${p.active ? '（使用中）' : ''}${p.bound ? '' : (p.bind_pending ? '（等待綁定）' : '（未綁定角色）')}</option>`).join('');
+  const act = PF.profiles.find(p => p.active) || {};
+  $('pf-snip').src = act.bound ? './api/profiles/snippet.png?id=' + encodeURIComponent(act.id) + '&t=' + Date.now() : '';
+  $('pf-snip').hidden = !act.bound;
+  $('pf-global').textContent = CFG ? CFG.user_file : '';
+}
+function pfSel() { return $('pf-sel').value; }
+function pfShow(r, okText) {
+  $('pf-msg').textContent = r.ok ? (r.note || okText || '完成') : '沒有完成：' + errText(r.errors);
+}
+async function pfAfter(r, okText) {
+  pfShow(r, okText);
+  if (r.ok && r.restart && r.restart.length) { await restart(); } else { await loadConfig(true); }
+  pfLoad(); poll();
+}
+async function pfDo(action) {
+  const r = await api('api/profiles', {action, id: pfSel()});
+  pfAfter(r, action === 'bind' ? '已綁定畫面上的角色' : '');
+}
+async function pfCreate(bind) {
+  const name = prompt('新設定檔的名字（例如角色名稱）：', '');
+  if (name === null) return;
+  const r = await api('api/profiles', {action: 'create', name, bind, switch: true});
+  pfAfter(r, '已新增');
+}
+async function pfRename() {
+  const cur = (PF.profiles.find(p => p.id === pfSel()) || {}).name || '';
+  const name = prompt('改成什麼名字？', cur);
+  if (!name) return;
+  pfAfter(await api('api/profiles', {action: 'rename', id: pfSel(), name}), '已改名');
+}
+async function pfDelete() {
+  const p = PF.profiles.find(x => x.id === pfSel()) || {};
+  if (!confirm(`刪除設定檔「${p.name}」？（檔案會改名保留成 .deleted）`)) return;
+  pfAfter(await api('api/profiles', {action: 'delete', id: pfSel()}), '已刪除');
+}
+
 // ---------- settings ----------
 function fieldHtml(f, v) {
   const [label, help] = LABELS[f.name] || [f.name, ''];
@@ -816,6 +883,8 @@ async function loadConfig(keepMsg) {
     html += `<fieldset><legend>${esc(title)}</legend><div class="grid">` + names.map(n => fieldHtml(byName[n], CFG.values[n])).join('') + '</div></fieldset>';
   }
   $('form').innerHTML = html;
+  $('f-wingpu-profile_autodetect').checked = !!CFG.values['wingpu.profile_autodetect'];
+  pfLoad();
   $('nt-details').open = CFG.values['player_detect.mode'] !== 'party_bar';
   $('form').onchange = e => { wedgePreset(e); applyDeps(); keyDupes(); };
   $('form').oninput = applyDeps;
@@ -866,7 +935,7 @@ async function save(apply) {
   if (apply && need.length) restart(); else { poll(); loadConfig(true); }
 }
 async function resetCfg() {
-  if (!confirm('清除網頁存的所有設定（會留一份 .bak），回到內建設定？')) return;
+  if (!confirm('清除目前這個角色設定檔的所有設定（會留一份 .bak），回到內建設定？共用的設定不受影響。')) return;
   await api('api/config/reset', {});
   restart();
 }
@@ -1035,6 +1104,10 @@ async function ntDelete() {
 }
 
 try { if (localStorage.getItem('msbot_adv') === '1') { $('adv').checked = true; document.body.classList.add('adv'); } } catch (e) {}
+$('f-wingpu-profile_autodetect').onchange = async e => {
+  const r = await api('api/config', {values: {'wingpu.profile_autodetect': e.target.checked}});
+  $('pf-msg').textContent = r.ok ? (e.target.checked ? '自動偵測角色：開' : '自動偵測角色：關') : '沒有存：' + errText(r.errors);
+};
 $('adv').onchange = () => { document.body.classList.toggle('adv', $('adv').checked); try { localStorage.setItem('msbot_adv', $('adv').checked ? '1' : '0'); } catch (e) {} };
 loadConfig();
 poll();

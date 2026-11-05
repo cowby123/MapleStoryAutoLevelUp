@@ -44,6 +44,11 @@ def build_cfg(cfg_name, user_override="default"):
         (cfg_user.get("system", {}) or {}).get("platform") or \
         cfg["system"].get("platform", "auto")
     set_platform(plat)
+    if is_wingpu() and user_override:
+        # first start with profiles: the user file is split (profiles.migrate)
+        from src.utils.profiles import Profiles
+        if Profiles(user_override).migrate() and os.path.exists(user_override):
+            over = load_yaml(user_override) or {}
     if is_wingpu():
         cfg = override_cfg(cfg, load_yaml("config/config_wingpu.yaml"))
     elif is_mac():
@@ -60,4 +65,15 @@ def build_cfg(cfg_name, user_override="default"):
             over["wingpu"] = w
         cfg = override_cfg(cfg, over)
         logger.info(f"[config] user override {user_override} applied")
+    # per-character profile (wingpu: /work/profiles/<active>.yaml), after the
+    # shared file; its global keys (if any) are ignored
+    if user_override and is_wingpu():
+        from src.utils.profiles import Profiles, split
+        prof = Profiles(user_override)
+        pid = prof.active()
+        if pid:
+            _, part = split(prof.settings(pid))
+            if part:
+                cfg = override_cfg(cfg, part)
+            logger.info(f"[config] profile {pid} ({prof.read(pid)[0].get('name')}) applied")
     return cfg

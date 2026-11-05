@@ -13,6 +13,10 @@ wingpu:
   # 🛑 Dry run: log every key/mouse action the bot WOULD send, send nothing.
   # Turning it off needs `dry_run: false` in YOUR config or --wingpu_live.
   dry_run: True
+  # Per-character profiles (/work/profiles): switch to the profile whose saved
+  # HUD name matches the character on screen (checked every 5 s; 2026-11-05: mage
+  # and archer frames 0.000-0.055 vs 0.35-0.50, never confused)
+  profile_autodetect: True
 
   # 🪟 Where the game client is in the guest screen (guest pixels)
   detect: "auto"            # "auto" | "fixed" | "template" | "fullscreen"

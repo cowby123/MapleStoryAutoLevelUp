@@ -32,7 +32,9 @@ import yaml
 # Local import
 from src.utils.logger import logger
 from src.utils.common import load_yaml, convert_tuples_to_lists
-from src.utils.config_layers import default_user_override
+from src.utils.config_layers import default_user_override, build_cfg
+from src.utils.profiles import Profiles, split as split_profile
+from src.utils.charname import name_crop, has_text, identify
 from src.input.WingpuKeyboard import get_keyboard, to_key_code, key_option_groups, KEY_MAP
 from src.utils.nametag import propose_rect, save_template, NametagTracker
 from src.utils.resolution import apply_scale
@@ -88,6 +90,7 @@ FIELDS = [
     ("attack", "aoe_count_window_s", "num", (0, 3)),
     ("attack", "aoe_count_stat", "choice", ["max", "median"]),
     ("route", "jump_runup", "bool", None),
+    ("wingpu", "profile_autodetect", "bool", None),
     # 類人保護 (src/engine/HumanPause.py)
     ("human_pause", "enable", "bool", None),
     ("human_pause", "interval_minutes", "range", (0.5, 120)),
@@ -215,6 +218,13 @@ class WebUI:
         self.bot = control.bot
         self.path = default_user_override()
         self.lock = threading.Lock()
+        # per-character profiles (src/utils/profiles.py); build_cfg migrated the
+        # user file already, this covers a start without it
+        self.profiles = Profiles(self.path)
+        if not self.profiles.exists():
+            self.profiles.migrate()
+        self.detect = {"t": 0.0, "candidate": None, "count": 0, "scores": {}, "seen": None}
+        self.profile_note = None   # (text, time) for 目前狀態
         self.data = load_yaml("config/config_data.yaml")
         self.snapshots = {}  # id -> (frame BGR, player centre or None, scale)
         self.snap_ids = itertools.count(1)
@@ -391,14 +401,19 @@ class WebUI:
         clean, errors = self.validate(values)
         if errors:
             return {"ok": False, "errors": errors}
+        g, p = split_profile(clean)
         with self.lock:
-            over = self.user_override()
-            for sec, kv in clean.items():
-                over.setdefault(sec, {})
-                if not isinstance(over[sec], dict):
-                    over[sec] = {}
-                over[sec].update(kv)
-            self._write(over)
+            if g:
+                over = self.user_override()
+                for sec, kv in g.items():
+                    over.setdefault(sec, {})
+                    if not isinstance(over[sec], dict):
+                        over[sec] = {}
+                    over[sec].update(kv)
+                self._write(over)
+            if p:
+                pid = self.profiles.active() or self.profiles.migrate()
+                self.profiles.update(pid, p)
         live, restart = self.apply_live(clean)
         if restart:
             self.control.pending_restart = True
@@ -597,13 +612,171 @@ class WebUI:
 
     def reset(self):
         '''
-        Remove the user file's settings (keeps nothing; shipped configs apply)
+        「清除我的設定」: the active profile's settings go (backup .bak); the
+        shared file (stream, input, detector, safe spots) stays
         '''
         with self.lock:
-            if os.path.exists(self.path):
-                os.replace(self.path, self.path + ".bak")
+            pid = self.profiles.active()
+            if pid:
+                self.profiles.clear(pid)
         self.control.pending_restart = True
-        return {"ok": True, "backup": self.path + ".bak"}
+        return {"ok": True, "backup": self.profiles.path(pid) + ".bak" if pid else None}
+
+    ################
+    ### Profiles ###
+    ################
+    def profile_values(self, cfg):
+        '''the settings a profile switch compares: every page field + the nametag file'''
+        vals = {f"{s}.{k}": _get(cfg, s, k) for s, k, _, _ in FIELDS if not is_global_field(s, k)}
+        vals["buff_skill.items"] = buff_items(cfg)
+        vals["player_detect.nametag_template"] = _get(cfg, "player_detect", "nametag_template")
+        return convert_tuples_to_lists(vals)
+
+    def profiles_status(self):
+        prof = self.profiles
+        act = prof.active()
+        d = dict(self.detect)
+        d.pop("t", None)
+        return {"active": act, "name": prof.read(act)[0].get("name") if act else None,
+                "profiles": prof.list(), "dir": prof.dir,
+                "autodetect": bool((self.bot.cfg.get("wingpu") or {}).get("profile_autodetect", True)),
+                "detect": d}
+
+    def snippet_png(self, pid):
+        p = self.profiles.snippet_path(pid) if pid in self.profiles.ids() else None
+        if not p or not os.path.exists(p):
+            return None
+        with open(p, "rb") as f:
+            return f.read()
+
+    def current_name_crop(self):
+        img = getattr(self.bot, "img_frame", None)
+        crop = name_crop(img)
+        return crop if has_text(crop) else None
+
+    def bind(self, pid):
+        crop = self.current_name_crop()
+        if crop is None:
+            return {"ok": False, "errors": {"profile": "畫面左下角找不到角色名字（遊戲畫面要在前景、沒被擋住）"}}
+        # the same character must not be bound to two profiles
+        other, scores = identify(self.bot.img_frame, {k: v for k, v in self.profiles.snippets().items() if k != pid})
+        if other is not None:
+            name = self.profiles.read(other)[0].get("name")
+            return {"ok": False, "errors": {"profile": f"這個角色已經綁定在「{name}」"}}
+        self.profiles.save_snippet(pid, crop)
+        logger.info(f"[Profiles] {pid} bound to the character on screen")
+        return {"ok": True}
+
+    def profile_action(self, body):
+        act = body.get("action")
+        prof = self.profiles
+        pid = body.get("id") or prof.active()
+        try:
+            if act == "create":
+                new = prof.create(str(body.get("name") or "").strip()[:24] or None, copy_from=prof.active())
+                # its own nametag file
+                prof.update(new, {"player_detect": {"nametag_template": os.path.join(prof.dir, f"{new}_nametag.png")}})
+                res = {"ok": True, "id": new}
+                if body.get("bind"):
+                    b = self.bind(new)
+                    if not b["ok"]:
+                        prof.delete(new)
+                        return b
+                if body.get("switch", True):
+                    res.update(self.switch_profile(new, "新增"))
+                return res
+            if act == "rename":
+                prof.rename(pid, str(body.get("name") or "").strip() or pid)
+                return {"ok": True}
+            if act == "delete":
+                was_active = pid == prof.active()
+                prof.delete(pid)
+                if was_active:
+                    return self.switch_profile(prof.active(), "刪除後")
+                return {"ok": True}
+            if act == "switch":
+                return self.switch_profile(pid, "手動切換")
+            if act == "bind":
+                return self.bind(pid)
+        except ValueError as e:
+            return {"ok": False, "errors": {"profile": str(e)}}
+        return {"ok": False, "errors": {"profile": f"不認得的動作 {act}"}}
+
+    def switch_profile(self, pid, why, auto=False):
+        '''
+        Make pid the active profile and apply its settings: live where the page
+        applies them live, else a bot restart that keeps running / paused and
+        live / dry run as they are. Keys are released first.
+        '''
+        prof = self.profiles
+        if pid not in prof.ids():
+            return {"ok": False, "errors": {"profile": "沒有這個設定檔"}}
+        bot = self.bot
+        control = self.control
+        control.release_keys()
+        old = self.profile_values(self.control.cfg_unscaled())
+        prof.set_active(pid)
+        cfg_name = getattr(bot.args, "cfg", None) or "wingpu_maple"
+        new_cfg = build_cfg(cfg_name, user_override=self.path)
+        new = self.profile_values(new_cfg)
+        clean = {}
+        for name, v in new.items():
+            if name == "buff_skill.items" or old.get(name) == v:
+                continue
+            sec, key = name.split(".", 1)
+            clean.setdefault(sec, {})[key] = copy.deepcopy(v)
+        if old.get("buff_skill.items") != new.get("buff_skill.items"):
+            b = new_cfg.get("buff_skill") or {}
+            clean["buff_skill"] = {k: copy.deepcopy(convert_tuples_to_lists(b.get(k)))
+                                   for k in ("items", "keys", "cooldown", "cast_at_start", "names") if k in b}
+        nt = (clean.get("player_detect") or {}).pop("nametag_template", None)
+        live, restart = self.apply_live(clean) if clean else ([], [])
+        if nt is not None:
+            bot.cfg.setdefault("player_detect", {})["nametag_template"] = nt
+            if getattr(bot, "nametag", None) is not None:
+                bot.init_nametag()
+        name = prof.read(pid)[0].get("name") or pid
+        text = (f"偵測到角色：{name} → 載入設定" if auto else f"切換到「{name}」的設定（{why}）")
+        self.profile_note = (text, time.time())
+        logger.info(f"[Profiles] -> {pid} ({name}, {why}); live {live}; restart {restart}")
+        if restart:
+            self.control.restart_keep_state(f"profile {pid}")
+            return {"ok": True, "applied_live": live, "restart": restart, "note": text + "：重新啟動 bot（維持執行 / 暫停、真的輸入 / 模擬）"}
+        return {"ok": True, "applied_live": live, "restart": [], "note": text + "：已立即套用"}
+
+    def detect_tick(self, now=None):
+        '''
+        Every ~5 s (WingpuControl.tick): bind a migrated profile to the
+        character on screen; with wingpu.profile_autodetect, switch to the
+        profile whose saved name matches, after two checks in a row
+        '''
+        now = time.time() if now is None else now
+        prof = self.profiles
+        img = getattr(self.bot, "img_frame", None)
+        if img is None:
+            return
+        act = prof.active()
+        if act:
+            meta, _ = prof.read(act)
+            if meta.get("bind_pending") and not os.path.exists(prof.snippet_path(act)):
+                if self.current_name_crop() is not None:
+                    self.bind(act)
+        snippets = prof.snippets()
+        pid, scores = identify(img, snippets)
+        self.detect.update(t=now, scores={k: round(v, 3) for k, v in scores.items()}, seen=pid)
+        if not (self.bot.cfg.get("wingpu") or {}).get("profile_autodetect", True):
+            self.detect.update(candidate=None, count=0)
+            return
+        if pid is None or pid == act:
+            self.detect.update(candidate=None, count=0)
+            return
+        if self.detect.get("candidate") == pid:
+            self.detect["count"] += 1
+        else:
+            self.detect.update(candidate=pid, count=1)
+        if self.detect["count"] >= 2:
+            self.detect.update(candidate=None, count=0)
+            self.switch_profile(pid, "自動偵測", auto=True)
 
     def _write(self, over):
         tmp = self.path + ".tmp"
@@ -750,6 +923,11 @@ class WebUI:
         if tr is not None:
             tr.reload_if_changed()
         return {"ok": True}
+
+
+def is_global_field(sec, key):
+    from src.utils.profiles import is_global
+    return is_global(sec, key)
 
 
 def _cn_name(data, map_id):

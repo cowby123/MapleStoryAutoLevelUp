@@ -103,6 +103,7 @@ class WingpuControl:
         # Apply the control file (or the default) before the bot acts
         if not self.poll_control(force=True):
             self.apply_run(self.running, "start (no control file)")
+        self.apply_resume()
         if self.http_port:
             self.start_http()
         logger.info(f"[WingpuControl] control file {self.control_file}, "
@@ -158,6 +159,37 @@ class WingpuControl:
             kb.release_all_key()
         get_keyboard().release_all()
 
+    def resume_path(self):
+        from src.utils.config_layers import default_user_override
+        return os.path.join(os.path.dirname(os.path.abspath(default_user_override())), ".msbot_resume.json")
+
+    def restart_keep_state(self, why):
+        '''restart (settings applied) and come back running / paused, live / dry as now'''
+        from src.input.WingpuKeyboard import get_keyboard
+        try:
+            with open(self.resume_path(), "w", encoding="utf-8") as f:
+                json.dump({"run": self.running, "live": not get_keyboard().dry_run, "t": time.time(),
+                           "why": why}, f)
+        except OSError as e:
+            logger.error(f"[WingpuControl] resume file: {e}")
+        self.request_restart(why)
+
+    def apply_resume(self):
+        '''after restart_keep_state: same running / live state (file read once, within 2 min)'''
+        p = self.resume_path()
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                st = json.load(f)
+            os.remove(p)
+        except (OSError, ValueError):
+            return
+        if time.time() - float(st.get("t", 0)) > 120:
+            return
+        if st.get("live"):
+            from src.input.WingpuKeyboard import get_keyboard
+            get_keyboard().configure(self.bot.cfg, live=True)
+        self.apply_run(bool(st.get("run")), f"resume after restart ({st.get('why')})")
+
     def request_restart(self, why):
         logger.info(f"[WingpuControl] restart ({why})")
         self.release_keys()
@@ -185,6 +217,12 @@ class WingpuControl:
         if now - self.t_last_poll > 0.5:
             self.t_last_poll = now
             self.poll_control()
+        if self.webui is not None and now - getattr(self, "t_last_profile", 0.0) > 5.0:
+            self.t_last_profile = now
+            try:
+                self.webui.detect_tick(now)
+            except Exception as e:
+                logger.error(f"[WingpuControl] profile detect: {e}")
         if now - self.t_last_debug > self.debug_interval:
             self.t_last_debug = now
             try:
@@ -276,6 +314,7 @@ class WingpuControl:
             "mob_search": {"mode": bot.cfg["monster_detect"].get("search", "attack"),
                            "box": list(bot.mob_search_box) if getattr(bot, "mob_search_box", None) else None},
             "pending_restart": self.pending_restart,
+            "profile": self.profile_brief(),
             "input": get_keyboard().status(),
         }
         self.status = status
@@ -353,7 +392,19 @@ class WingpuControl:
             "frame_wh": list(bot.frame_hw[::-1]) if getattr(bot, "frame_hw", None) else None,
             "history": [{"t": time.strftime("%H:%M:%S", time.localtime(h["t"])), "dur": h["dur"], "main": h["main"]}
                         for h in reversed(hist)],
+            "profile_note": self.profile_note_text(t),
         }
+
+    def profile_note_text(self, t):
+        note = getattr(self.webui, "profile_note", None) if self.webui is not None else None
+        return note[0] if note and t - note[1] < 10 else None
+
+    def profile_brief(self):
+        w = self.webui
+        if w is None:
+            return None
+        pid = w.profiles.active()
+        return {"id": pid, "name": w.profiles.read(pid)[0].get("name") if pid else None}
 
     def buff_status(self):
         '''
@@ -504,6 +555,16 @@ class WingpuControl:
                         self._send(404, "text/plain", b"no such route")
                     else:
                         self._send(200, "image/png", png)
+                elif path == "/api/profiles":
+                    self._json(control.webui.profiles_status())
+                elif path == "/api/profiles/snippet.png":
+                    q = urlparse(self.path).query
+                    pid = dict(kv.split("=", 1) for kv in q.split("&") if "=" in kv).get("id", "")
+                    png = control.webui.snippet_png(pid)
+                    if png is None:
+                        self._send(404, "text/plain", b"no snippet")
+                    else:
+                        self._send(200, "image/png", png)
                 elif path == "/api/nametag":
                     self._json(control.webui.nametag_status())
                 elif path == "/api/nametag/template.png":
@@ -580,6 +641,9 @@ class WingpuControl:
                     return
                 elif path == "/api/nametag/snapshot":
                     self._json(control.webui.nametag_snapshot())
+                    return
+                elif path == "/api/profiles":
+                    self._json(control.webui.profile_action(body))
                     return
                 elif path == "/api/nametag/save":
                     self._json(control.webui.nametag_save(body))
