@@ -147,14 +147,40 @@ def find_guide_arrow(frame, player, s, ui_y=None):
 class FrameCapture:
     '''
     Saves frames while the curse banner (or the mini-game) is on screen, for
-    fixtures: at most one every `interval` s and `max_files` files in `out_dir`.
+    fixtures: at most one every `interval` s and `max_files` frames in `out_dir`.
+    The folder is re-counted every RECOUNT saves and (at most every 30 s) when
+    the cap is reached, so moving files away resumes capturing without a
+    restart. rotate=True: at the cap the oldest frames (+ their .json) are
+    deleted instead of stopping.
     '''
-    def __init__(self, out_dir, interval=2.0, max_files=300):
+    RECOUNT = 50
+
+    def __init__(self, out_dir, interval=2.0, max_files=300, rotate=False):
         self.out_dir = out_dir
         self.interval = interval
         self.max_files = max_files
+        self.rotate = rotate
         self.t_last = 0.0
         self.count = None
+        self.saves = 0
+        self.t_recount = 0.0
+
+    def pngs(self):
+        return sorted(f for f in os.listdir(self.out_dir) if f.endswith(".png"))
+
+    def recount(self, now):
+        self.count = len(self.pngs())
+        self.t_recount = now
+
+    def drop_oldest(self, n):
+        files = sorted((os.path.getmtime(os.path.join(self.out_dir, f)), f) for f in self.pngs())
+        for _, f in files[:max(0, n)]:
+            for p in (f, f[:-4] + ".json"):
+                try:
+                    os.remove(os.path.join(self.out_dir, p))
+                except OSError:
+                    pass
+        self.recount(time.time())
 
     def maybe_save(self, frame, tag, meta=None):
         now = time.time()
@@ -163,10 +189,15 @@ class FrameCapture:
         self.t_last = now
         try:
             os.makedirs(self.out_dir, exist_ok=True)
-            if self.count is None:
-                self.count = len([f for f in os.listdir(self.out_dir) if f.endswith(".png")])
+            if self.count is None or self.saves % self.RECOUNT == 0:
+                self.recount(now)
             if self.count >= self.max_files:
-                return None
+                if self.rotate:
+                    self.drop_oldest(self.count - self.max_files + 1)
+                elif now - self.t_recount > 30:
+                    self.recount(now)    # files moved away / cap raised?
+                if self.count >= self.max_files:
+                    return None
             name = time.strftime(f"{tag}_%Y%m%d-%H%M%S") + f"_{int(now * 1000) % 1000:03d}"
             path = os.path.join(self.out_dir, name + ".png")
             cv2.imwrite(path, frame)
@@ -174,6 +205,7 @@ class FrameCapture:
                 with open(os.path.join(self.out_dir, name + ".json"), "w", encoding="utf-8") as f:
                     json.dump(meta, f, ensure_ascii=False, default=str)
             self.count += 1
+            self.saves += 1
             return path
         except OSError as e:
             logger.warning(f"[RuneCurse] capture failed: {e}")

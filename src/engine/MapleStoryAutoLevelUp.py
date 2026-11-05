@@ -2669,6 +2669,9 @@ class MapleStoryAutoBot:
                                                   float(rc.get("capture_interval", 2.0)),
                                                   int(rc.get("capture_max", 300)))
             self.curse_capture.interval = 0.4 if game_up else float(rc.get("capture_interval", 2.0))
+            # settings changed in the web UI apply without a restart
+            self.curse_capture.max_files = int(rc.get("capture_max", 300))
+            self.curse_capture.rotate = bool(rc.get("capture_rotate", False))
             arrow = self.rune.get("arrow")
             if arrow is None and self.cursed:
                 # for the record also when not seeking (the arrow is drawn anyway)

@@ -113,6 +113,7 @@ FIELDS = [
     ("rune_curse", "capture_frames", "bool", None),
     ("rune_curse", "capture_interval", "num", (0.5, 60)),
     ("rune_curse", "capture_max", "int", (0, 5000)),
+    ("rune_curse", "capture_rotate", "bool", None),
     ("route", "jump_stuck_s", "num", (0.5, 10)),
     ("route", "jump_runup_back_px", "int", (1, 20)),
     ("directional_attack", "target_hold_s", "num", (0, 5)),

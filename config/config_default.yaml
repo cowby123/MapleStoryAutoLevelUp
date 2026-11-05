@@ -318,7 +318,8 @@ rune_curse:
   minigame_retries: 2          # 🔁 press the same arrow again at most this many times, then give up
   capture_frames: True         # 📸 save frames while cursed (for development): /work/frames_rune/auto
   capture_interval: 2.0        # ⏱️ at most one frame every this many seconds (0.5 s during the mini-game)
-  capture_max: 300             # 🗂️ stop after this many files
+  capture_max: 300             # 🗂️ stop after this many frames (re-counted: moving files away resumes)
+  capture_rotate: False        # 🔁 at the cap delete the oldest frames instead of stopping
 
 detection_lost:
   # 🛑 Safety pause

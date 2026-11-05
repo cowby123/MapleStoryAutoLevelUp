@@ -198,7 +198,33 @@ def test_minimap_occluded():
     print("  past the grace: normal stop (minimap)")
 
 
+def test_frame_capture_cap():
+    '''the cap is re-counted: files moved away -> capturing resumes; rotate keeps the newest'''
+    import tempfile, shutil
+    import numpy as np
+    from src.engine.RuneCurse import FrameCapture
+    d = tempfile.mkdtemp()
+    img = np.zeros((8, 8, 3), np.uint8)
+    cap = FrameCapture(d, interval=0, max_files=3)
+    saved = [cap.maybe_save(img, f"t{i}", {"i": i}) for i in range(5)]
+    assert sum(p is not None for p in saved) == 3
+    for f in os.listdir(d):                           # the user moves them away
+        os.remove(os.path.join(d, f))
+    cap.t_recount -= 31
+    assert cap.maybe_save(img, "again") is not None   # resumes without a restart
+    cap2 = FrameCapture(d, interval=0, max_files=3, rotate=True)
+    for i in range(6):
+        assert cap2.maybe_save(img, f"r{i}", {"i": i}) is not None
+        time.sleep(0.002)
+    pngs = sorted(f for f in os.listdir(d) if f.endswith(".png"))
+    assert len(pngs) == 3 and all(f.startswith(("r3", "r4", "r5")) for f in pngs), pngs
+    assert len([f for f in os.listdir(d) if f.endswith(".json")]) == 3
+    shutil.rmtree(d)
+    print("  cap re-counted after moving files; rotate keeps the newest 3")
+
+
 if __name__ == "__main__":
-    for name in ("test_banner", "test_arrow", "test_mode", "test_curse_stop_default", "test_minimap_occluded"):
+    for name in ("test_banner", "test_arrow", "test_mode", "test_curse_stop_default", "test_minimap_occluded",
+                 "test_frame_capture_cap"):
         globals()[name]()
         print("ok  ", name)
