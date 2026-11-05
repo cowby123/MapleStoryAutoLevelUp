@@ -116,6 +116,12 @@ def explain(bot, rec, now):
         from src.engine.RuneGame import sequence_text
         n = (getattr(bot, "mg_total", 0) or len(mg)) - len(mg) + 1
         details.insert(0, f"畫面上有符文小遊戲：{sequence_text(mg)}（第 {n} 個；bot 沒有在解）")
+    if "rune_sweep" in kinds:
+        w = kinds["rune_sweep"]
+        details.insert(0, f"接近原因：{w.get('why', '')}；已找 {w.get('elapsed', 0):.0f} 秒、按上 {w.get('presses', 0)} 次")
+        return "rune_sweep", f"符文：接近中 → 小步左右找（±{w.get('radius', 0)} px）＋按上", details
+    if "rune_near" in kinds:
+        return "rune_near", f"符文：就在附近（{kinds['rune_near'].get('why', '')}）→ 先停下", details
     if "rune_seek" in kinds:
         w = kinds["rune_seek"]
         how = w.get("how")

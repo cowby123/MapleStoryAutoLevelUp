@@ -2827,6 +2827,16 @@ class MapleStoryAutoBot:
         self.why("rune_game", seq=[c["dir"] for c in icons], total=self.mg_total,
                  tries=r.get("mg_tries", 0))
 
+    def arrow_how(self, rc, arrow):
+        '''guide arrow angle -> left / right / up / down'''
+        a = arrow["angle"]
+        vert = float(rc.get("vertical_deg", 55))
+        if -180 + vert < a < -vert:
+            return "down"
+        if vert < a < 180 - vert:
+            return "up"
+        return "left" if abs(a) >= 90 else "right"
+
     def rune_seek(self, rc, r, now):
         '''one frame of following the yellow arrow'''
         from src.input.KeyBoardController import press_key as _press
@@ -2836,20 +2846,44 @@ class MapleStoryAutoBot:
         r["last_x"] = self.loc_player[0]
         key = rc.get("interact_key", "up")
         press = False
+        if r.get("sweep") is not None:
+            # final approach: small left / right taps around the rune + the interact key
+            self.rune_sweep(rc, r, now, arrow)
+            return
         if arrow is not None:
             r["arrow"], r["t_arrow"] = arrow, now
-            a = arrow["angle"]
-            vert = float(rc.get("vertical_deg", 55))
-            if -180 + vert < a < -vert:
-                how = "down"
-            elif vert < a < 180 - vert:
-                how = "up"
-            else:
-                how = "left" if abs(a) >= 90 else "right"
+            raw = self.arrow_how(rc, arrow)
             # act on the majority of the last 5 reads (a yellow block can pass for an arrow once)
             votes = r.setdefault("votes", collections.deque(maxlen=5))
-            votes.append(how)
+            votes.append(raw)
             how = collections.Counter(votes).most_common(1)[0][0]
+            # close to the rune: the arrow flips (two reads in a row point back
+            # the way we came: we just walked past it)
+            prev = r.get("walk_dir")
+            opp = {"left": "right", "right": "left"}.get(prev)
+            if opp and list(votes)[-2:] == [opp, opp]:
+                self.start_rune_sweep(rc, r, now, f"箭頭從{'左' if prev == 'left' else '右'}轉向"
+                                                  f"{'左' if opp == 'left' else '右'}")
+                self.rune_sweep(rc, r, now, arrow)
+                return
+            # the arrow points down at the feet and the drop-down jump does not
+            # move us (bottom floor; 2026-11-06 01:44: 25 s of "down" at the
+            # same spot, the rune was 30 px to the side)
+            if how == "down":
+                ds = r.get("down")
+                if ds is None or abs(self.loc_player[1] - ds["y"]) > 15 * self.scale:
+                    r["down"] = {"t": now, "y": self.loc_player[1]}
+                elif now - ds["t"] >= float(rc.get("sweep_down_s", 1.5)):
+                    first = "left" if arrow["dir"][0] < 0 else "right"
+                    self.start_rune_sweep(rc, r, now, "箭頭指向腳下", first=first)
+                    self.rune_sweep(rc, r, now, arrow)
+                    return
+            else:
+                r.pop("down", None)
+            if how in ("left", "right"):
+                r["walk_dir"] = how
+            elif how in ("up", "down"):
+                r["walk_dir"] = None          # changing floors: no "walked past" from before
             if how == "down":
                 cmd = "none down jump"
             elif how == "up":
@@ -2864,6 +2898,10 @@ class MapleStoryAutoBot:
             cmd, how = "none none none", "gone"
             if r.get("arrow") is not None and now - r["t_arrow"] > 0.3:
                 press = True
+                if r.get("walk_dir") in ("left", "right"):
+                    self.start_rune_sweep(rc, r, now, "箭頭不見了")
+                    self.rune_sweep(rc, r, now, None)
+                    return
         if press and now - r["t_interact"] > float(rc.get("interact_cooldown", 0.8)):
             r["t_interact"] = now
             r["presses"] += 1
@@ -2875,6 +2913,100 @@ class MapleStoryAutoBot:
         self.kb.set_command(cmd)
         self.why("rune_seek", how=how, angle=arrow["angle"] if arrow else None,
                  elapsed=round(now - r["t0"], 1), timeout=float(rc.get("seek_timeout", 120)))
+
+    def start_rune_sweep(self, rc, r, now, why, first=None):
+        '''
+        Close to the rune: release the movement keys at once (momentum would
+        carry the character past it) and start sweeping around this spot
+        '''
+        self.kb.set_command("none none none")
+        self.kb.release_all_key()
+        if is_wingpu():
+            from src.input.WingpuKeyboard import get_keyboard
+            get_keyboard().release_all()
+        step = max(1.0, float(rc.get("sweep_px_per_tap", 12)))
+        top = max(step, float(rc.get("sweep_max_px", 60)))
+        radii = []
+        for rad in (10, 20, 40, 80, 160):
+            if rad < top:
+                radii.append(rad)
+        radii.append(top)
+        # targets in taps from the start: +r1, -r1, +r2, -r2, ... (first toward
+        # where we came from: we just walked past it)
+        if first is not None:
+            back = 1 if first == "right" else -1
+        else:
+            back = -1 if r.get("walk_dir") == "right" else 1
+        targets = []
+        for rad in radii:
+            n = max(1, int(round(rad / step)))
+            targets += [back * n, -back * n]
+        r["sweep"] = {"t0": now, "pos": 0, "targets": targets, "i": 0, "t_tap": 0.0, "t_up": 0.0,
+                      "why": why, "radius": radii[0], "taps": 0, "away": None, "t_away": 0.0}
+        r.pop("votes", None)
+        r.pop("down", None)
+        logger.info(f"[RuneCurse] near the rune ({why}): sweep +-{radii} px, {step:g} px per tap")
+        self.why("rune_near", why=why)
+
+    def rune_sweep(self, rc, r, now, arrow):
+        '''
+        One frame of the final approach: a short tap toward the current
+        target (sweep_tap_s), the interact key every sweep_up_interval s;
+        the mini-game panel ends it (run_rune_curse); an arrow pointing away
+        for sweep_away_s goes back to the long walk; sweep_timeout too
+        '''
+        from src.input.KeyBoardController import press_key as _press
+        sw = r["sweep"]
+        step = max(1.0, float(rc.get("sweep_px_per_tap", 12)))
+        self.kb.is_resting = False
+        self.kb.set_command("none none none")
+        self.cmd_move_x = self.cmd_move_y = self.cmd_action = "none"
+        # an arrow clearly pointing one way for a while: walk again
+        if arrow is not None:
+            how = self.arrow_how(rc, arrow)
+            r["arrow"], r["t_arrow"] = arrow, now
+            if how in ("left", "right", "down", "up") and how == sw["away"]:
+                if now - sw["t_away"] >= float(rc.get("sweep_away_s", 1.0)):
+                    logger.info(f"[RuneCurse] the arrow points {how} again: walking")
+                    r["sweep"] = None
+                    r["walk_dir"] = how if how in ("left", "right") else r.get("walk_dir")
+                    r["votes"] = collections.deque([how] * 3, maxlen=5)
+                    self.why("rune_seek", how=how, angle=arrow["angle"], elapsed=round(now - r["t0"], 1),
+                             timeout=float(rc.get("seek_timeout", 120)))
+                    return
+            elif how != sw["away"]:
+                sw["away"], sw["t_away"] = how, now
+        else:
+            sw["away"] = None
+        if now - sw["t0"] > float(rc.get("sweep_timeout", 20)):
+            logger.info("[RuneCurse] sweep timed out: follow the arrow again")
+            r["sweep"] = None
+            r.pop("walk_dir", None)
+            return
+        key = rc.get("interact_key", "up")
+        tap = float(rc.get("sweep_tap_s", 0.12))
+        gap = float(rc.get("sweep_tap_gap", 0.15))
+        target = sw["targets"][sw["i"]]
+        if sw["pos"] == target:
+            sw["i"] = (sw["i"] + 1) % len(sw["targets"])
+            target = sw["targets"][sw["i"]]
+        sw["radius"] = int(round(abs(target) * step))
+        tapped = None
+        if now - sw["t_tap"] >= tap + gap:
+            d = 1 if target > sw["pos"] else -1
+            tapped = "right" if d > 0 else "left"
+            _press(tapped, tap)
+            sw["pos"] += d
+            sw["taps"] += 1
+            sw["t_tap"] = time.time()
+        up_every = float(rc.get("sweep_up_interval", 0.25))
+        t = time.time()
+        if t - sw["t_up"] >= up_every:
+            _press(key, 0.05)
+            sw["t_up"] = t
+            r["presses"] = r.get("presses", 0) + 1
+        self.why("rune_sweep", radius=sw["radius"], pos=round(sw["pos"] * step), tap=tapped,
+                 why=sw["why"], elapsed=round(now - sw["t0"], 1), presses=r.get("presses", 0))
 
     def check_detection_lost(self):
         '''

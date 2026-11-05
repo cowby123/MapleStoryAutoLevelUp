@@ -314,6 +314,16 @@ rune_curse:
   resume: "curse_gone"         # after the timeout: "curse_gone" (rest while cursed) | "rest_time"
   rest_minutes: [5, 10]        # ⏱️ "rest_time": rest this long, then hunt again (even if cursed)
   check_interval: 0.5          # ⏱️ seconds between banner checks
+  # final approach: when the arrow flips (walked past the rune) or disappears, stop
+  # and sweep around that spot with short taps, pressing the interact key
+  sweep_tap_s: 0.12            # ⏱️ one tap of left / right (moves only a few px)
+  sweep_tap_gap: 0.15          # ⏱️ pause between taps
+  sweep_px_per_tap: 12         # ↔️ about how far one tap moves (px; plans the sweep width)
+  sweep_max_px: 60             # ↔️ widest sweep around the spot (+-10, +-20, +-40, ... up to this)
+  sweep_up_interval: 0.25      # ⏱️ press the interact key this often while sweeping
+  sweep_away_s: 1.0            # ⏱️ the arrow points one way this long -> walk again
+  sweep_timeout: 20            # ⏱️ give up the sweep, follow the arrow again (seek_timeout still counts)
+  sweep_down_s: 1.5            # ⏱️ arrow points down but the drop-down does not move us this long -> sweep
   minigame_wait: 0.45          # ⏱️ after each arrow key: wait at least this long for the icon to fade
   minigame_retries: 2          # 🔁 press the same arrow again at most this many times, then give up
   capture_frames: True         # 📸 save frames while cursed (for development): /work/frames_rune/auto
