@@ -2432,20 +2432,36 @@ class MapleStoryAutoBot:
             self.minimap_rect = r
             self.minimap_partial = False
             return r
-        # partly covered (event effects, the curse padlock): the minimap window
-        # does not move, so accept the last rect while its left frame edge and
-        # the left end of its top edge are still pure white
+        # Partly covered (event effects, the curse padlock, edge glow): the
+        # minimap window does not move, so accept the last rect while at least
+        # ONE visible border edge (right or bottom, away from the screen edge)
+        # is still close to white. The left side is often covered by the golden
+        # event glow on the screen edge (2026-11-09 ston).
         last = self.minimap_rect
         self.minimap_partial = False
         if last is not None:
             x, y, w, h = last
             img = self.img_frame
-            if x >= 1 and y >= 1 and y + h < img.shape[0]:
-                left = np.all(img[y:y + h, x - 1] == 255, axis=1).mean()
-                top = np.all(img[y - 1, x - 1:x - 1 + min(20, w)] == 255, axis=1).mean()
-                if left >= 0.9 and top >= 0.9:
-                    self.minimap_partial = True
-                    return last
+            H, W = img.shape[:2]
+            ok = False
+            # right border
+            if x + w + 1 < W:
+                right = np.all(img[y:y + h, x + w] >= 240, axis=1).mean()
+                if right >= 0.7:
+                    ok = True
+            # bottom border
+            if not ok and y + h + 1 < H:
+                bottom = np.all(img[y + h, x:x + w] >= 240, axis=1).mean()
+                if bottom >= 0.7:
+                    ok = True
+            # top border (may be partly covered; check the right half)
+            if not ok and y >= 1 and w > 10:
+                top_r = np.all(img[y - 1, x + w // 2:x + w] >= 240, axis=1).mean()
+                if top_r >= 0.7:
+                    ok = True
+            if ok:
+                self.minimap_partial = True
+                return last
         return None
 
     def safe_spot(self):
