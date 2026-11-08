@@ -1086,6 +1086,31 @@ class MapleStoryAutoBot:
 
         return nearest, nearest_up_down  # if not found return none
 
+    def _nearest_non_up(self, search_range):
+        '''
+        Find the nearest route colour that is NOT an up/down command, within
+        search_range of player_global. Used when the route says "up" but the
+        character is clearly not on a rope (on_ladder False for 5+ frames):
+        the global position is slightly off and landed on the rope colour.
+        '''
+        up_cmds = {"none up none", "none down jump", "none up jump", "none down none"}
+        x0, y0 = self.loc_player_global
+        h, w = self.img_route.shape[:2]
+        x_min, x_max = max(0, x0 - search_range), min(w, x0 + search_range)
+        y_min, y_max = max(0, y0 - search_range), min(h, y0 + search_range)
+        best, best_dist = None, float('inf')
+        for y in range(y_min, y_max):
+            for x in range(x_min, x_max):
+                pixel = tuple(self.img_route[y, x])
+                if pixel in self.color_code:
+                    cmd = self.color_code[pixel]
+                    if cmd not in up_cmds:
+                        dist = abs(x - x0) + abs(y - y0)
+                        if dist < best_dist:
+                            best = {"pixel": (x, y), "color": pixel, "command": cmd, "distance": dist}
+                            best_dist = dist
+        return best
+
     def wedge_params(self):
         '''
         (start, range, slope, center_dy) of the directional wedge in frame
@@ -1988,6 +2013,23 @@ class MapleStoryAutoBot:
     def update_cmd_by_route(self):
         # get color code from img_route
         color_code, color_code_up_down = self.get_nearest_color_code()
+
+        # Guard: the route says "up" (rope) but the character is NOT on a ladder
+        # and hasn't been for several frames. The global position is likely off
+        # by a few pixels and landed on the rope colour instead of the platform.
+        # Re-search: find the nearest NON-up colour within a wider area.
+        off_ladder = getattr(self, "_off_ladder_frames", 0)
+        if self.is_on_ladder:
+            self._off_ladder_frames = 0
+        else:
+            self._off_ladder_frames = off_ladder + 1
+        up_cmds = {"none up none", "none down jump", "none up jump"}
+        if color_code and color_code["command"] in up_cmds and off_ladder >= 5:
+            # search wider for a non-up colour
+            alt = self._nearest_non_up(max(15, self.cfg["route"]["search_range"]))
+            if alt is not None:
+                color_code = alt
+
         # Use color_code and color_code_up_down to complement each other
         # To prevent character stuck at the end of ladder, we use two color color pixels
         # and let them complement with each other, to ensure smoothy ladder climbing
