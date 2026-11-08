@@ -3088,15 +3088,21 @@ class MapleStoryAutoBot:
         # (from the first frame without the minimap: the route needs it, so no
         #  route moves even before the normal timeout)
         self.minimap_grace = None
+        t_mm_any = max(self.t_minimap_ok, getattr(self, "t_last_minimap_update", 0.0))
         if mode == "normal" and not getattr(self, "minimap_ok_frame", True) and not rune_seeking and \
-                grace_s > 0 and now - self.t_player_seen <= timeout and self.t_minimap_ok and \
-                now - self.t_minimap_ok <= grace_s:
-            self.minimap_grace = now - self.t_minimap_ok
+                grace_s > 0 and now - self.t_player_seen <= timeout and t_mm_any and \
+                now - t_mm_any <= grace_s:
+            self.minimap_grace = now - t_mm_any
             rune_seeking = True
-        if mode == "normal" and now - self.t_minimap_ok > timeout and not rune_seeking:
+        # The minimap is "found" when its white frame is detected, even if the
+        # yellow dot inside it is temporarily not found (edge glow, another dot).
+        # t_last_minimap_update tracks the frame; t_minimap_ok tracks the dot.
+        # Use the more recent of the two for detection-lost.
+        t_mm = max(self.t_minimap_ok, getattr(self, "t_last_minimap_update", 0.0))
+        if mode == "normal" and now - t_mm > timeout and not rune_seeking:
             reason.append("minimap")
         # The screen-space player not found is NOT a reason to stop when the
-        # minimap dot is found: the character may be hidden under monsters but
+        # minimap is found: the character may be hidden under monsters but
         # the minimap still shows its position. In patrol mode (no minimap)
         # the screen-space player is still required.
         if mode == "patrol" and now - self.t_player_seen > timeout:
