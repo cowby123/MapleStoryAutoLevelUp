@@ -394,6 +394,9 @@ const LABELS = {
   'detection_lost.timeout': ['找不到幾秒後停手（秒）', '小地圖或角色不見（開了商店、對話框）就放開所有鍵；一般 2'],
   'detection_lost.minimap_grace_s': ['小地圖被擋住時最多撐幾秒', '活動特效、詛咒鎖頭擋住小地圖但看得到角色：這段時間只原地攻擊，超過才停手；0 = 馬上停手；一般 10'],
   'system.fps_limit_main': ['每秒處理幾張畫面（FPS）', '越低越省 CPU；一般 20'],
+  // 怪物圖鑑
+  'book_dismiss.enable': ['自動關閉怪物圖鑑', '偵測到怪物圖鑑彈出（會擋住操作，角色會死）就自動按 Esc 關閉'],
+  'book_dismiss.force_in_dry_run': ['試跑模式也按 Esc 關閉', '即使在試跑模式也會按 Esc 關閉（否則角色會死）'],
   // 符文 / 詛咒
   'curse.stop_while_cursed': ['詛咒時停止練功', '畫面出現詛咒（經驗值、掉寶變 0）就停手：不攻擊、不移動、不放增益技能，還會喝水；詛咒消失自動恢復'],
   'curse.action': ['詛咒時怎麼停', '原地停手（預設）；先走到安全點（要設安全點，否則原地）'],
@@ -467,6 +470,7 @@ const GROUPS = [
   ['類人保護', ['human_pause.enable', 'human_pause.interval_minutes', 'human_pause.pause_seconds', 'human_pause.long_enable', 'human_pause.long_chance_percent', 'human_pause.long_seconds']],
   ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
   ['安全與其他', ['route.jump_runup', 'route.jump_stuck_s', 'route.jump_runup_back_px', 'edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'detection_lost.minimap_grace_s', 'system.fps_limit_main']],
+  ['怪物圖鑑', ['book_dismiss.enable', 'book_dismiss.force_in_dry_run']],
   ['符文 / 詛咒', ['curse.stop_while_cursed', 'curse.action', 'rune_curse.enable', 'rune_curse.seek_timeout', 'rune_curse.interact_key', 'rune_curse.interact_every_px', 'rune_curse.interact_cooldown', 'rune_curse.resume', 'rune_curse.rest_minutes', 'rune_curse.sweep_tap_s', 'rune_curse.sweep_tap_gap', 'rune_curse.sweep_px_per_tap', 'rune_curse.sweep_max_px', 'rune_curse.sweep_up_interval', 'rune_curse.sweep_away_s', 'rune_curse.sweep_timeout', 'rune_curse.minigame_wait', 'rune_curse.minigame_retries', 'rune_curse.capture_frames', 'rune_curse.capture_interval', 'rune_curse.capture_max', 'rune_curse.capture_rotate']],
   ['其他功能開關（預設都關）', ['rune_find.enable', 'rune_find.near_rune_duration', 'watchdog.last_attack_enable', 'watchdog.last_attack_timeout', 'watchdog.last_attack_timeout_action', 'scheduled_channel_switching.enable', 'scheduled_channel_switching.interval_seconds', 'channel_change.enable', 'wingpu.ensure_party_on_start']],
   ['其他時間設定', ['buff_skill.action_cooldown', 'aoe_skill.cooldown', 'teleport.cooldown', 'patrol.patrol_attack_interval', 'system.fps_limit_window_capturor', 'wingpu.debug_interval', 'wingpu.redetect_interval', 'wingpu.mjpeg_fps', 'wingpu.mjpeg_scale']],
@@ -512,6 +516,7 @@ const DEPS = {
   'directional_attack.target_hold_s': v => v['directional_attack.stand_while_target'],
   'route.jump_stuck_s': v => v['route.jump_runup'],
   'curse.action': v => v['curse.stop_while_cursed'] || v['rune_curse.enable'],
+  'book_dismiss.force_in_dry_run': v => v['book_dismiss.enable'],
   'rune_curse.seek_timeout': v => v['rune_curse.enable'],
   'rune_curse.interact_key': v => v['rune_curse.enable'],
   'rune_curse.interact_every_px': v => v['rune_curse.enable'],

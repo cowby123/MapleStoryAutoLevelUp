@@ -98,6 +98,9 @@ def explain(bot, rec, now):
 
     if kb is not None and not kb.is_enable:
         return "paused", "暫停中（不送任何按鍵）", details
+    if "book_dismiss" in kinds:
+        w = kinds["book_dismiss"]
+        return "book", f"偵測到怪物圖鑑，按 Esc 關閉（第 {w.get('retries', 0)} 次）", details
     if "curse_seen" in kinds:
         details.insert(0, "畫面上有詛咒（經驗值、掉寶 0）" +
                        ("，休息時間到了，照常練功" if kinds["curse_seen"].get("skip") else "，「解符文」沒開"))

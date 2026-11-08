@@ -178,10 +178,11 @@ class HealthMonitor:
                 mp_cd    = self.cfg["health_monitor"]["add_mp_cooldown"]
                 watchdog_timeout = self.cfg["health_monitor"]["return_home_watch_dog_timeout"]
 
-                # Detection lost (kb.is_hold): send nothing
-                if getattr(self.kb, "is_hold", False):
-                    self.limit_fps()
-                    continue
+                # Detection lost (kb.is_hold): the keyboard controller does not
+                # send movement / attack / buffs, but potions must still work
+                # (the character takes damage while the book popup or event
+                # effects block the minimap / player detection; the HP/MP bars
+                # at the bottom are usually still visible)
 
                 # Check if need to heal (with cooldown)
                 if self.cfg["health_monitor"]["force_heal"]:

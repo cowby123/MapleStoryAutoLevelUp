@@ -294,6 +294,15 @@ hunt_cycle:
   window_start: ""             # "HH:MM": only play between window_start and window_end ("" = always)
   window_end: ""
 
+book_dismiss:
+  # 📖 Auto-dismiss the monster book (怪物圖鑑) popup: it blocks all controls.
+  enable: True                   # ✅ detect and press Esc to close
+  key: "esc"                     # ⌨️ key to press
+  force_in_dry_run: True         # ⚡ press even in dry-run mode (otherwise the character dies)
+  check_interval_s: 0.5          # ⏱️ how often to check (seconds)
+  max_retries: 3                 # 🔁 press at most this many times per popup
+  press_interval_s: 0.4          # ⏱️ wait between presses (seconds)
+
 curse:
   # 🛑 While the rune curse is on (EXP / drops 0): stop hunting - no attacks,
   # movement or buffs; potions stay on. Back to hunting when the banner is gone.

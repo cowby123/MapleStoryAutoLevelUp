@@ -34,6 +34,7 @@ from src.utils.resolution import (compute_scale, apply_scale, snapshot_base,
 from src.utils.nametag import NametagTracker, default_dir as nametag_default_dir
 from src.engine.HuntCycle import HuntCycle
 from src.engine.HumanPause import HumanPause
+from src.engine.BookDismiss import BookDismisser
 from src.utils.attack_shape import wedge_test, wedge_polygon
 from src.engine.AoeAttack import AoeCounter, merge_boxes, count_in_area, area_polygons, aoe_params
 from src.engine.explain import explain
@@ -589,6 +590,7 @@ class MapleStoryAutoBot:
         # Hunt / rest cycles
         self.hunt_cycle = HuntCycle(self.cfg.get("hunt_cycle"), log=logger.info)
         self.human_pause = HumanPause(self.cfg.get("human_pause"))
+        self.book_dismisser = BookDismisser(self.cfg.get("book_dismiss"))
 
         # Reset all timers
         self.t_last_frame = time.time()
@@ -3008,6 +3010,20 @@ class MapleStoryAutoBot:
         self.why("rune_sweep", radius=sw["radius"], pos=round(sw["pos"] * step), tap=tapped,
                  why=sw["why"], elapsed=round(now - sw["t0"], 1), presses=r.get("presses", 0))
 
+    def _book_press(self, key, duration):
+        '''press Esc to dismiss the book: even in dry run (force_in_dry_run, default True)'''
+        bd_cfg = self.cfg.get("book_dismiss") or {}
+        force = bool(bd_cfg.get("force_in_dry_run", True))
+        if is_wingpu():
+            from src.input.WingpuKeyboard import get_keyboard
+            kb = get_keyboard()
+            if force or not kb.dry_run:
+                kb.press_key(key, duration)
+            else:
+                logger.info(f"[BookDismiss] dry run: would press {key}")
+        else:
+            press_key(key, duration)
+
     def check_detection_lost(self):
         '''
         True while the bot must hold still because the minimap (normal mode) or
@@ -3299,10 +3315,25 @@ class MapleStoryAutoBot:
         self.check_curse()
 
         ##########################
+        ### Monster book popup ###
+        ##########################
+        # The monster book (怪物圖鑑) blocks all controls: press Esc to close it.
+        # Checked every ~0.5 s (BookDismisser.tick); presses Esc even in dry run
+        # if book_dismiss.force_in_dry_run is on (default: True).
+        bd = getattr(self, "book_dismisser", None)
+        if bd is None:
+            bd = self.book_dismisser = BookDismisser(self.cfg.get("book_dismiss"))
+        bd_cfg = self.cfg.get("book_dismiss") or {}
+        bd.reconfigure(bd_cfg)
+        if bd.tick(self.img_frame, self._book_press):
+            self.why("book_dismiss", retries=bd.retries, dismissed=bd.dismissed)
+
+        ##########################
         ### Detection-lost pause ###
         ##########################
         # Minimap or player not found for lost_timeout seconds: hold every key,
         # send nothing, resume when both are back (no blind watchdog actions).
+        # Potions STILL WORK (HealthMonitor no longer checks is_hold).
         if self.check_detection_lost():
             self.why("lost_pause", reason=list(self.lost_reason))
             self.is_first_frame = False

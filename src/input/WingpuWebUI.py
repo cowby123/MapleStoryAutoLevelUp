@@ -98,6 +98,8 @@ FIELDS = [
     ("human_pause", "long_enable", "bool", None),
     ("human_pause", "long_chance_percent", "int", (1, 100)),
     ("human_pause", "long_seconds", "range", (2, 120)),
+    ("book_dismiss", "enable", "bool", None),
+    ("book_dismiss", "force_in_dry_run", "bool", None),
     ("curse", "stop_while_cursed", "bool", None),
     ("curse", "action", "choice", ["stop", "safe_spot"]),
     ("detection_lost", "minimap_grace_s", "num", (0, 120)),
