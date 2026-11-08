@@ -516,6 +516,11 @@ class MapleStoryAutoBot:
         self._smooth_gy = None
         self._dot_track = None
         self._dot_history = collections.deque(maxlen=4)
+        self._pos_calibration = None
+        self._portal_state = None
+        self._dot_avg = None
+        self._auto_cal_tried = False
+        self._scroll_state = None
         self.loc_player = (0, 0)
         self.loc_party_red_bar = (0, 0)
         self.t_minimap_ok = self.t_player_seen = 0.0
@@ -898,49 +903,101 @@ class MapleStoryAutoBot:
 
         return loc_player, loc_party_red_bar
 
+    @staticmethod
+    def _find_portals(img):
+        '''Find cyan portal icons on a minimap or map.png image -> [(x, y)]'''
+        if img is None or img.size == 0:
+            return []
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, (85, 100, 150), (110, 255, 255))
+        mask = cv2.dilate(mask, np.ones((5, 5), np.uint8))
+        n, lbl, stats, centroids = cv2.connectedComponentsWithStats(mask)
+        portals = []
+        for i in range(1, n):
+            if stats[i, cv2.CC_STAT_AREA] >= 3:
+                portals.append((int(round(centroids[i][0])), int(round(centroids[i][1]))))
+        return sorted(portals)
+
+    def calibrate_position(self, gx, gy, dot, why="manual"):
+        '''Set the calibration anchor: global = (gx, gy) when the dot is at `dot`.'''
+        self._pos_calibration = {"gx": float(gx), "gy": float(gy),
+                                  "dx": float(dot[0]), "dy": float(dot[1]), "why": why}
+        self._dot_avg = collections.deque(maxlen=3)
+        self._smooth_gx, self._smooth_gy = float(gx), float(gy)
+        logger.info(f"[minimap] calibrated: global ({gx}, {gy}) at dot {dot} ({why})")
+
     def get_player_location_on_global_map(self):
         '''
-        Global map position: image match primary, geometric fallback, smoothed.
+        Global map position: portal calibration + dot tracking (primary),
+        manual calibration or geometric formula (fallback), smoothed.
 
-        Image match: small centre patch (60x60 or centre 40%), cached until the
-        dot moves > 5 px. Threshold 0.5. When it fails, geometric fallback.
-        Smooth the result: at most 5 px/frame.
+        Portal calibration: find cyan portal icons on both the minimap crop and
+        map.png; the offset between them gives the scroll position exactly,
+        even on maps with identical terrain on every floor. Re-checked every
+        time the dot moves > 5 px. Instant, no image matching of terrain.
+
+        Manual calibration (web UI): the user clicks on the route map.
+        Fallback: geometric formula (linear scroll interpolation).
         '''
         cur = self.loc_player_minimap if self.loc_player_minimap != (0, 0) else None
         x_offset, y_offset = self.cfg["minimap"]["offset"]
         raw_gx, raw_gy = None, None
+        mm_s = self.minimap_scale.m if self.minimap_scale and self.minimap_scale.m else self.scale
 
-        # --- primary: image match (small centre patch, cached) ---
-        sc_state = getattr(self, "_scroll_state", None)
-        if sc_state is None:
-            sc_state = self._scroll_state = {"gx": None, "gy": None, "dot": None, "score": 0}
-        need_match = sc_state["gx"] is None   # first frame
-        if cur is not None and sc_state["dot"] is not None:
-            if abs(cur[0] - sc_state["dot"][0]) > 5 or abs(cur[1] - sc_state["dot"][1]) > 5:
-                need_match = True
-        if need_match and cur is not None:
-            tpl = self.img_minimap_route
-            h, w = tpl.shape[:2]
-            # centre patch: 60x60 or 40% of each dimension, whichever is smaller
-            ph = min(60, max(10, h * 2 // 5))
-            pw = min(60, max(10, w * 2 // 5))
-            cy, cx = h // 2, w // 2
-            inner = tpl[cy - ph // 2:cy + ph // 2, cx - pw // 2:cx + pw // 2]
-            ty, tx = cy - ph // 2, cx - pw // 2
-            if inner.shape[0] >= 10 and inner.shape[1] >= 10:
-                raw_loc, score, _ = find_pattern_sqdiff(self.img_map, inner)
-                self.minimap_global_score = score
-                sc_state["score"] = score
-                if score < 0.5:
-                    sc_state["gx"] = raw_loc[0] - tx + cur[0] + x_offset
-                    sc_state["gy"] = raw_loc[1] - ty + cur[1] + y_offset
-                    sc_state["dot"] = cur
-        if sc_state["gx"] is not None and cur is not None:
-            # apply the cached offset + the dot's movement since the last match
-            dx = cur[0] - sc_state["dot"][0] if sc_state["dot"] else 0
-            dy = cur[1] - sc_state["dot"][1] if sc_state["dot"] else 0
-            raw_gx = sc_state["gx"] + dx
-            raw_gy = sc_state["gy"] + dy
+        # --- primary: portal-based calibration ---
+        cal = getattr(self, "_pos_calibration", None)
+        pcal = getattr(self, "_portal_state", None)
+        if pcal is None:
+            # find portals on map.png once
+            map_portals = self._find_portals(self.img_map)
+            pcal = self._portal_state = {"map": map_portals, "dot": None, "t": 0}
+        need_portal = cal is None or (cur is not None and pcal["dot"] is not None and
+                      (abs(cur[0] - pcal["dot"][0]) > 5 or abs(cur[1] - pcal["dot"][1]) > 5))
+        now = time.time()
+        if need_portal and cur is not None and pcal["map"] and now - pcal["t"] > 0.5:
+            pcal["t"] = now
+            pcal["dot"] = cur
+            # find portals on the live minimap (in route-map pixels)
+            live_portals = self._find_portals(self.img_minimap_route)
+            if live_portals and pcal["map"]:
+                # match: for each live portal, find the closest map portal
+                # with 1 portal: the offset is direct
+                # with 2+: use the pair that gives the most consistent offset
+                best_offset = None
+                if len(live_portals) == 1 and len(pcal["map"]) == 1:
+                    lp, mp = live_portals[0], pcal["map"][0]
+                    best_offset = (mp[0] - lp[0], mp[1] - lp[1])
+                elif len(live_portals) >= 1 and len(pcal["map"]) >= 1:
+                    # try each live portal against each map portal, pick the one
+                    # where a second portal also matches (if available)
+                    for lp in live_portals:
+                        for mp in pcal["map"]:
+                            off = (mp[0] - lp[0], mp[1] - lp[1])
+                            # verify: how many other portals match with this offset?
+                            matches = sum(1 for lp2 in live_portals
+                                          for mp2 in pcal["map"]
+                                          if abs((mp2[0] - lp2[0]) - off[0]) <= 3
+                                          and abs((mp2[1] - lp2[1]) - off[1]) <= 3)
+                            if best_offset is None or matches > best_offset[2]:
+                                best_offset = (off[0], off[1], matches)
+                    if best_offset:
+                        best_offset = (best_offset[0], best_offset[1])
+                if best_offset is not None:
+                    gx = best_offset[0] + cur[0] + x_offset
+                    gy = best_offset[1] + cur[1] + y_offset
+                    self.calibrate_position(gx, gy, cur, "portal")
+                    raw_gx, raw_gy = gx, gy
+
+        # --- calibration + dot tracking ---
+        if raw_gx is None and cal is not None and cur is not None:
+            avg = getattr(self, "_dot_avg", None)
+            if avg is None:
+                avg = self._dot_avg = collections.deque(maxlen=3)
+            avg.append(cur)
+            sx = sum(p[0] for p in avg) / len(avg)
+            sy = sum(p[1] for p in avg) / len(avg)
+            raw_gx = cal["gx"] + (sx - cal["dx"])
+            raw_gy = cal["gy"] + (sy - cal["dy"])
 
         # --- fallback: geometric formula ---
         if raw_gx is None and cur is not None:
