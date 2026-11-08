@@ -167,10 +167,12 @@ class HealthMonitor:
                     if self.hp_percent > hp_percent:
                         self.t_last_hp_reduce = t_cur
                     self.hp_percent = hp_percent
+                    self.t_last_hp_read = t_cur
                 if mp_percent is not None:
                     self.mp_percent = mp_percent
                 if exp_percent is not None:
                     self.exp_percent = exp_percent
+
 
                 hp_thres = self.cfg["health_monitor"]["add_hp_percent"]
                 mp_thres = self.cfg["health_monitor"]["add_mp_percent"]

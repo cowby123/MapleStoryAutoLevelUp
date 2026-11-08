@@ -631,10 +631,12 @@ def get_bar_percent(img, bar_type=None):
     frame. The filled part is saturated (red / blue / yellow), the empty part is
     light grey/white: count the saturated columns of the bar's inside.
 
-    (Upstream thresholded grey > 190 as "empty"; the yellow EXP fill is grey
-    ~195, so EXP always read ~0%, and the white frame rows cost HP/MP ~13%.
-    Checked on maple frames 2026-11-02: HP/MP 100% at 561/561, 421/421;
-    EXP 45.8 / 46.4 / 51.2 % vs the game's 45.63 / 46.62 / 50.31 %.)
+    Glow-resistant: when a golden edge effect tints the whole bar, the absolute
+    saturation of the "empty" part rises above the threshold. Instead of a fixed
+    threshold, use a per-column saturation relative to the bar's MINIMUM (the
+    emptiest column): filled columns are significantly more saturated than empty
+    ones regardless of the tint. Fallback to the absolute threshold when the
+    range is too small (no tint).
     '''
     h, w = img.shape[:2]
     m = max(2, h // 7)
@@ -644,7 +646,15 @@ def get_bar_percent(img, bar_type=None):
     if inner.ndim == 2:
         inner = cv2.cvtColor(inner, cv2.COLOR_GRAY2BGR)
     sat = cv2.cvtColor(inner, cv2.COLOR_BGR2HSV)[:, :, 1].mean(axis=0)
-    return float((sat > 90).mean() * 100)
+    # Adaptive: if the min saturation is high (glow tint), use relative threshold
+    sat_min = float(sat.min())
+    sat_max = float(sat.max())
+    if sat_min > 50 and sat_max - sat_min > 15:
+        # glow: threshold = halfway between min (empty+glow) and max (filled+glow)
+        thr = sat_min + (sat_max - sat_min) * 0.4
+    else:
+        thr = 90
+    return float((sat > thr).mean() * 100)
 
 def nms_matches(matches, iou_thresh=0.0):
     '''
