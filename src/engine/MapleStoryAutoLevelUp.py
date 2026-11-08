@@ -3130,9 +3130,21 @@ class MapleStoryAutoBot:
         # yellow dot inside it is temporarily not found (edge glow, another dot).
         # t_last_minimap_update tracks the frame; t_minimap_ok tracks the dot.
         # Use the more recent of the two for detection-lost.
+        # If the minimap is lost but the screen player IS found, use the grace
+        # (stand and attack in place) instead of full detection-lost: the edge
+        # glow can cover the minimap border entirely (2026-11-09 ston) but the
+        # character is still visible and should keep fighting.
         t_mm = max(self.t_minimap_ok, getattr(self, "t_last_minimap_update", 0.0))
         if mode == "normal" and now - t_mm > timeout and not rune_seeking:
-            reason.append("minimap")
+            if now - self.t_player_seen <= timeout:
+                # player visible: stand and attack in place indefinitely (the
+                # grace_s timeout only applies to the transition period; as long
+                # as the player is seen, keep fighting -- the edge glow can last
+                # for minutes and detection-lost while visible = death)
+                self.minimap_grace = now - t_mm if t_mm > 0 else 0.0
+                rune_seeking = True  # suppresses the "minimap" reason
+            else:
+                reason.append("minimap")
         # The screen-space player not found is NOT a reason to stop when the
         # minimap is found: the character may be hidden under monsters but
         # the minimap still shows its position. In patrol mode (no minimap)
