@@ -512,6 +512,10 @@ class MapleStoryAutoBot:
         self._scroll_confirmed = None
         self._scroll_candidate = None
         self._scroll_count = 0
+        self._smooth_gx = None
+        self._smooth_gy = None
+        self._dot_track = None
+        self._dot_history = collections.deque(maxlen=4)
         self.loc_player = (0, 0)
         self.loc_party_red_bar = (0, 0)
         self.t_minimap_ok = self.t_player_seen = 0.0
@@ -896,96 +900,65 @@ class MapleStoryAutoBot:
 
     def get_player_location_on_global_map(self):
         '''
-        Global map position = scroll_offset + dot_position.
+        Global map position: image match primary, geometric fallback, smoothed.
 
-        The scroll offset is computed geometrically from the dot's position
-        within the minimap window and the map.png size, with image-match
-        re-anchoring every few seconds as a correction.
-
-        For a map whose map.png fits inside the minimap window (no scrolling),
-        scroll_offset = (0, 0) and global = dot position directly.
-
-        For a scrolling map (map.png > minimap window), the game scrolls the
-        minimap so the player stays visible. The scroll offset on each axis is:
-          if map_size <= window_size: 0 (no scrolling on this axis)
-          else: clamp(dot_global - dot_in_window, 0, map_size - window_size)
-        which simplifies to: dot_global = scroll_offset + dot_in_window,
-        and we solve for scroll_offset from the dot's position within the
-        window and the map size.
-
-        When the dot is near the edge of the window:
-          top edge (dot_in_window_y < 10): scroll_offset_y ≈ 0
-          bottom edge (dot_in_window_y > window_h - 10): scroll_offset_y ≈ map_h - window_h
-        This gives us the global Y directly without image matching.
+        Every frame: try the centre-60% image match. If score < 0.4, use it
+        (most accurate). If it fails, fall back to the geometric formula
+        (linear scroll interpolation). Smooth the result: at most 5 px/frame.
         '''
-        mm_s = self.minimap_scale.m if self.minimap_scale and self.minimap_scale.m else self.scale
         cur = self.loc_player_minimap if self.loc_player_minimap != (0, 0) else None
-        now = time.time()
-
-        # minimap window size in route-map pixels
-        mm_h = self.img_minimap.shape[0] if self.img_minimap is not None else 1
-        mm_w = self.img_minimap.shape[1] if self.img_minimap is not None else 1
-        win_h = int(round(mm_h / mm_s))
-        win_w = int(round(mm_w / mm_s))
-        map_h, map_w = self.img_map.shape[:2]
         x_offset, y_offset = self.cfg["minimap"]["offset"]
+        raw_gx, raw_gy = None, None
 
-        # --- geometric scroll offset per axis ---
-        def scroll_axis(dot, win, map_sz):
-            '''estimate the scroll offset from the dot's position in the window'''
-            extra = map_sz - win
-            if extra <= 0:
-                return 0   # no scrolling
-            # the dot is at `dot` px from the top/left of the window (route px).
-            # the game keeps the player centred, clamped to [0, extra].
-            # so scroll = clamp(dot_global - dot, 0, extra)
-            # and dot_global = scroll + dot.
-            # When dot < ~10: scroll ≈ 0 -> global ≈ dot.
-            # When dot > win - 10: scroll ≈ extra -> global ≈ extra + dot.
-            # In the middle: scroll = round(dot * extra / max(1, win - 1))
-            # (linear interpolation: the minimap scrolls proportionally)
-            if dot <= 0:
-                return 0
-            if dot >= win - 1:
-                return extra
-            return int(round(dot * extra / max(1, win - 1)))
+        # --- primary: image match (centre 60%) ---
+        tpl = self.img_minimap_route
+        h, w = tpl.shape[:2]
+        ty, tx = max(4, h // 5), max(4, w // 5)
+        inner = tpl[ty:h - ty, tx:w - tx]
+        if inner.shape[0] >= 10 and inner.shape[1] >= 10 and cur is not None:
+            raw_loc, score, _ = find_pattern_sqdiff(self.img_map, inner)
+            self.minimap_global_score = score
+            if score < 0.4:
+                raw_gx = raw_loc[0] - tx + cur[0] + x_offset
+                raw_gy = raw_loc[1] - ty + cur[1] + y_offset
 
-        if cur is not None:
-            sx = scroll_axis(cur[0], win_w, map_w)
-            sy = scroll_axis(cur[1], win_h, map_h)
-            gx = sx + cur[0] + x_offset
-            gy = sy + cur[1] + y_offset
-        else:
-            gx = getattr(self, "_last_gx", 0)
-            gy = getattr(self, "_last_gy", 0)
+        # --- fallback: geometric formula ---
+        if raw_gx is None and cur is not None:
+            mm_s = self.minimap_scale.m if self.minimap_scale and self.minimap_scale.m else self.scale
+            mm_h = self.img_minimap.shape[0] if self.img_minimap is not None else 1
+            mm_w = self.img_minimap.shape[1] if self.img_minimap is not None else 1
+            win_h, win_w = int(round(mm_h / mm_s)), int(round(mm_w / mm_s))
+            map_h, map_w = self.img_map.shape[:2]
 
-        # --- periodic image-match correction (every 5 s, threshold 0.4) ---
-        dt = getattr(self, "_dot_track", None)
-        if dt is None:
-            dt = self._dot_track = {"t_anchor": 0.0, "score": 0.0, "correction": (0, 0)}
-        anchor_interval = float(self.cfg.get("minimap", {}).get("anchor_interval", 5))
-        if now - dt["t_anchor"] > anchor_interval and cur is not None:
-            dt["t_anchor"] = now
-            tpl = self.img_minimap_route
-            h, w = tpl.shape[:2]
-            ty, tx = max(4, h // 5), max(4, w // 5)
-            inner = tpl[ty:h - ty, tx:w - tx]
-            if inner.shape[0] >= 10 and inner.shape[1] >= 10:
-                raw_loc, score, _ = find_pattern_sqdiff(self.img_map, inner)
-                dt["score"] = score
-                self.minimap_global_score = score
-                if score < 0.4:
-                    anchor_gx = raw_loc[0] - tx + cur[0] + x_offset
-                    anchor_gy = raw_loc[1] - ty + cur[1] + y_offset
-                    dt["correction"] = (anchor_gx - gx, anchor_gy - gy)
-                    gx, gy = anchor_gx, anchor_gy
-        else:
-            # apply the last correction (smooth: it stays until the next anchor)
-            cx, cy = dt.get("correction", (0, 0))
-            gx += cx
-            gy += cy
+            def scroll_axis(dot, win, map_sz):
+                extra = map_sz - win
+                if extra <= 0:
+                    return 0
+                return max(0, min(extra, int(round(dot * extra / max(1, win - 1)))))
 
-        self._last_gx, self._last_gy = gx, gy
+            raw_gx = scroll_axis(cur[0], win_w, map_w) + cur[0] + x_offset
+            raw_gy = scroll_axis(cur[1], win_h, map_h) + cur[1] + y_offset
+
+        # --- smoothing: at most 5 px/frame change ---
+        gx = getattr(self, "_smooth_gx", None)
+        gy = getattr(self, "_smooth_gy", None)
+        if raw_gx is not None:
+            max_step = 5
+            if gx is None:
+                gx, gy = float(raw_gx), float(raw_gy)
+            else:
+                for attr, raw, prev in (("x", raw_gx, gx), ("y", raw_gy, gy)):
+                    d = raw - prev
+                    if abs(d) <= max_step:
+                        if attr == "x": gx = float(raw)
+                        else: gy = float(raw)
+                    else:
+                        if attr == "x": gx += max_step if d > 0 else -max_step
+                        else: gy += max_step if d > 0 else -max_step
+        elif gx is None:
+            gx, gy = 0.0, 0.0
+
+        self._smooth_gx, self._smooth_gy = gx, gy
         loc_player_global = (int(round(gx)), int(round(gy)))
         self.loc_minimap_global = (loc_player_global[0] - self.loc_player_minimap[0],
                                    loc_player_global[1] - self.loc_player_minimap[1])
