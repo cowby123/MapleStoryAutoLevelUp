@@ -898,45 +898,61 @@ class MapleStoryAutoBot:
         '''
         get_player_location_on_global_map
         '''
-        # Trim the outer edge of the minimap crop before matching against
-        # map.png: seasonal glow and border artifacts at the edges can shift
-        # the scroll offset (2026-11-09 ston: Y drifts 80 px)
-        trim = int(self.cfg.get("minimap", {}).get("scroll_trim", 4))
+        # Use the centre of the minimap for matching (monster labels, edge glow
+        # and border artifacts corrupt the edges). Only re-match when the dot
+        # moved significantly or every 2 s; keep the last offset on failure.
         tpl = self.img_minimap_route
-        if trim > 0 and tpl.shape[0] > 2 * trim + 10 and tpl.shape[1] > 2 * trim + 10:
-            tpl = tpl[trim:-trim, trim:-trim]
-        raw_loc, score, _ = find_pattern_sqdiff(self.img_map, tpl)
-        # adjust for the trim: the template was shifted inward by `trim`
-        raw_loc = (raw_loc[0] - trim, raw_loc[1] - trim) if trim > 0 else raw_loc
+        h, w = tpl.shape[:2]
+        # centre ~60%: trim 20% from each side
+        ty, tx = max(4, h // 5), max(4, w // 5)
+        inner = tpl[ty:h - ty, tx:w - tx]
 
-        # Stabilise the scroll offset: only accept a new offset if it persists
-        # for 2+ consecutive frames (jitter on dark/low-contrast minimaps)
-        hold = int(self.cfg.get("minimap", {}).get("scroll_hold", 2))
         prev = getattr(self, "_scroll_confirmed", None)
-        if prev is not None and hold > 0:
-            dx = abs(raw_loc[0] - prev[0])
-            dy = abs(raw_loc[1] - prev[1])
-            if dx <= 3 and dy <= 3:
-                # same as confirmed: keep it
-                raw_loc = prev
-            else:
-                # different: count consecutive frames
-                cand = getattr(self, "_scroll_candidate", None)
-                if cand is not None and abs(raw_loc[0] - cand[0]) <= 2 and abs(raw_loc[1] - cand[1]) <= 2:
-                    self._scroll_count = getattr(self, "_scroll_count", 0) + 1
-                else:
-                    self._scroll_candidate = raw_loc
-                    self._scroll_count = 1
-                if self._scroll_count >= hold:
-                    self._scroll_confirmed = raw_loc
-                    self._scroll_candidate = None
-                else:
-                    raw_loc = prev   # keep the old offset until the new one stabilises
-        else:
-            self._scroll_confirmed = raw_loc
+        now = time.time()
+        dot_moved = False
+        last_dot = getattr(self, "_scroll_last_dot", None)
+        cur_dot = self.loc_player_minimap if self.loc_player_minimap != (0, 0) else None
+        if last_dot is not None and cur_dot is not None:
+            dot_moved = abs(cur_dot[0] - last_dot[0]) > 5 or abs(cur_dot[1] - last_dot[1]) > 5
+        need_match = prev is None or dot_moved or now - getattr(self, "_t_scroll_match", 0.0) > 2.0
 
-        self.loc_minimap_global = raw_loc
-        self.minimap_global_score = score
+        if need_match and inner.shape[0] >= 10 and inner.shape[1] >= 10:
+            raw_loc, score, _ = find_pattern_sqdiff(self.img_map, inner)
+            raw_loc = (raw_loc[0] - tx, raw_loc[1] - ty)
+            self._t_scroll_match = now
+            self.minimap_global_score = score
+            if cur_dot is not None:
+                self._scroll_last_dot = cur_dot
+
+            # Stabilise: only accept if it persists 2+ frames
+            hold = int(self.cfg.get("minimap", {}).get("scroll_hold", 2))
+            if prev is not None and hold > 0:
+                dx = abs(raw_loc[0] - prev[0])
+                dy = abs(raw_loc[1] - prev[1])
+                if dx <= 3 and dy <= 3:
+                    raw_loc = prev
+                else:
+                    cand = getattr(self, "_scroll_candidate", None)
+                    if cand is not None and abs(raw_loc[0] - cand[0]) <= 2 and abs(raw_loc[1] - cand[1]) <= 2:
+                        self._scroll_count = getattr(self, "_scroll_count", 0) + 1
+                    else:
+                        self._scroll_candidate = raw_loc
+                        self._scroll_count = 1
+                    if self._scroll_count >= hold:
+                        self._scroll_confirmed = raw_loc
+                        self._scroll_candidate = None
+                    else:
+                        raw_loc = prev
+            else:
+                self._scroll_confirmed = raw_loc
+            self.loc_minimap_global = raw_loc
+        elif prev is not None:
+            # no re-match needed or too small: keep the last offset
+            self.loc_minimap_global = prev
+        else:
+            # first frame, no match possible: (0, 0) as before
+            self.loc_minimap_global = (0, 0)
+            self.minimap_global_score = 0.0
 
         x_offset, y_offset = self.cfg["minimap"]["offset"]
         loc_player_global = (
@@ -953,7 +969,7 @@ class MapleStoryAutoBot:
                       camera_bottom_right, (0, 255, 255), 1)
         cv2.putText(
             self.img_route_debug,
-            f"Minimap,score({round(score, 2)})",
+            f"Minimap,score({round(getattr(self, 'minimap_global_score', 0) or 0, 2)})",
             (self.loc_minimap_global[0], self.loc_minimap_global[1]+15),
             cv2.FONT_HERSHEY_SIMPLEX, 0.4,
             (0, 255, 255), 1
