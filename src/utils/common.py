@@ -518,11 +518,10 @@ def get_player_location_on_minimap(img_minimap, minimap_player_color=(136, 255, 
     The function works by:
     - Creating a binary mask of all pixels in the minimap that match the configured
     player color exactly.
-    - Excluding the outer `margin` pixels on each side (edge glow from seasonal
-      events bleeds into the minimap and shifts the yellow-pixel average).
+    - Adaptively excluding the outer pixels when edge glow is detected (the outer
+      2 px ring is abnormally bright): `margin` px masked on sides that have glow.
+      When the dot is at the edge (no glow), nothing is masked.
     - Verifying that at least 4 matching pixels are found (to avoid false positives).
-    - Computing the average of these pixel coordinates to determine the center of
-    the player icon on the minimap.
 
     Returns:
         (x, y): The player's location in minimap coordinates as a tuple.
@@ -531,12 +530,19 @@ def get_player_location_on_minimap(img_minimap, minimap_player_color=(136, 255, 
     mask = cv2.inRange(img_minimap,
                         minimap_player_color,
                         minimap_player_color)
-    if margin > 0:
+    if margin > 0 and img_minimap.ndim == 3:
         h, w = mask.shape[:2]
-        mask[:margin, :] = 0
-        mask[max(0, h - margin):, :] = 0
-        mask[:, :margin] = 0
-        mask[:, max(0, w - margin):] = 0
+        grey = cv2.cvtColor(img_minimap, cv2.COLOR_BGR2GRAY) if img_minimap.ndim == 3 else img_minimap
+        # Check each side's outer 2 px strip: if mean brightness > 200, it's glow
+        glow_thres = 200
+        if h > 4 and grey[:2, :].mean() > glow_thres:
+            mask[:margin, :] = 0
+        if h > 4 and grey[-2:, :].mean() > glow_thres:
+            mask[max(0, h - margin):, :] = 0
+        if w > 4 and grey[:, :2].mean() > glow_thres:
+            mask[:, :margin] = 0
+        if w > 4 and grey[:, -2:].mean() > glow_thres:
+            mask[:, max(0, w - margin):] = 0
     coords = cv2.findNonZero(mask)
     if coords is None or len(coords) < 4:
         return None
