@@ -902,25 +902,45 @@ class MapleStoryAutoBot:
         '''
         Global map position: image match primary, geometric fallback, smoothed.
 
-        Every frame: try the centre-60% image match. If score < 0.4, use it
-        (most accurate). If it fails, fall back to the geometric formula
-        (linear scroll interpolation). Smooth the result: at most 5 px/frame.
+        Image match: small centre patch (60x60 or centre 40%), cached until the
+        dot moves > 5 px. Threshold 0.5. When it fails, geometric fallback.
+        Smooth the result: at most 5 px/frame.
         '''
         cur = self.loc_player_minimap if self.loc_player_minimap != (0, 0) else None
         x_offset, y_offset = self.cfg["minimap"]["offset"]
         raw_gx, raw_gy = None, None
 
-        # --- primary: image match (centre 60%) ---
-        tpl = self.img_minimap_route
-        h, w = tpl.shape[:2]
-        ty, tx = max(4, h // 5), max(4, w // 5)
-        inner = tpl[ty:h - ty, tx:w - tx]
-        if inner.shape[0] >= 10 and inner.shape[1] >= 10 and cur is not None:
-            raw_loc, score, _ = find_pattern_sqdiff(self.img_map, inner)
-            self.minimap_global_score = score
-            if score < 0.4:
-                raw_gx = raw_loc[0] - tx + cur[0] + x_offset
-                raw_gy = raw_loc[1] - ty + cur[1] + y_offset
+        # --- primary: image match (small centre patch, cached) ---
+        sc_state = getattr(self, "_scroll_state", None)
+        if sc_state is None:
+            sc_state = self._scroll_state = {"gx": None, "gy": None, "dot": None, "score": 0}
+        need_match = sc_state["gx"] is None   # first frame
+        if cur is not None and sc_state["dot"] is not None:
+            if abs(cur[0] - sc_state["dot"][0]) > 5 or abs(cur[1] - sc_state["dot"][1]) > 5:
+                need_match = True
+        if need_match and cur is not None:
+            tpl = self.img_minimap_route
+            h, w = tpl.shape[:2]
+            # centre patch: 60x60 or 40% of each dimension, whichever is smaller
+            ph = min(60, max(10, h * 2 // 5))
+            pw = min(60, max(10, w * 2 // 5))
+            cy, cx = h // 2, w // 2
+            inner = tpl[cy - ph // 2:cy + ph // 2, cx - pw // 2:cx + pw // 2]
+            ty, tx = cy - ph // 2, cx - pw // 2
+            if inner.shape[0] >= 10 and inner.shape[1] >= 10:
+                raw_loc, score, _ = find_pattern_sqdiff(self.img_map, inner)
+                self.minimap_global_score = score
+                sc_state["score"] = score
+                if score < 0.5:
+                    sc_state["gx"] = raw_loc[0] - tx + cur[0] + x_offset
+                    sc_state["gy"] = raw_loc[1] - ty + cur[1] + y_offset
+                    sc_state["dot"] = cur
+        if sc_state["gx"] is not None and cur is not None:
+            # apply the cached offset + the dot's movement since the last match
+            dx = cur[0] - sc_state["dot"][0] if sc_state["dot"] else 0
+            dy = cur[1] - sc_state["dot"][1] if sc_state["dot"] else 0
+            raw_gx = sc_state["gx"] + dx
+            raw_gy = sc_state["gy"] + dy
 
         # --- fallback: geometric formula ---
         if raw_gx is None and cur is not None:
