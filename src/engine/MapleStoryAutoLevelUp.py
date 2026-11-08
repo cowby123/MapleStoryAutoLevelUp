@@ -3239,11 +3239,36 @@ class MapleStoryAutoBot:
         else:
             mm = self.minimap_scale.m or self.scale
         if loc_player_minimap:
-            self.loc_player_minimap = (int(round(loc_player_minimap[0] / mm)),
-                                       int(round(loc_player_minimap[1] / mm)))
-            self.det_counts["player_dot"] += 1
-            self.t_minimap_ok = time.time()
-            self.minimap_ok_frame = True
+            new_pos = (int(round(loc_player_minimap[0] / mm)),
+                       int(round(loc_player_minimap[1] / mm)))
+            # Reject if the dot jumps too far from the last known position
+            # (another yellow object on the minimap, e.g. another player's dot
+            # or a portal marker; 2026-11-09 ston map: delta 29x40 every other
+            # frame). On the first frame or after detection-lost recovery,
+            # accept any position.
+            max_jump = int(self.cfg.get("minimap", {}).get("max_dot_jump", 12))
+            prev = self.loc_player_minimap
+            if prev != (0, 0) and self.t_minimap_ok > 0 and max_jump > 0:
+                dx = abs(new_pos[0] - prev[0])
+                dy = abs(new_pos[1] - prev[1])
+                if dx > max_jump or dy > max_jump:
+                    self.minimap_dot_rejects = getattr(self, "minimap_dot_rejects", 0) + 1
+                    t = time.time()
+                    if t - getattr(self, "t_dot_reject_log", 0.0) > 5.0:
+                        logger.info(f"[minimap] dot jump rejected: {prev} -> {new_pos} "
+                                    f"(delta {dx},{dy} > {max_jump}); "
+                                    f"total {self.minimap_dot_rejects}")
+                        self.t_dot_reject_log = t
+                    # keep the previous position; still count it as "found"
+                    self.det_counts["player_dot"] += 1
+                    self.t_minimap_ok = t
+                    self.minimap_ok_frame = True
+                    loc_player_minimap = None  # skip the update
+            if loc_player_minimap:
+                self.loc_player_minimap = new_pos
+                self.det_counts["player_dot"] += 1
+                self.t_minimap_ok = time.time()
+                self.minimap_ok_frame = True
 
         # Get other player location on minimap
         loc_other_players = get_all_other_player_locations_on_minimap(

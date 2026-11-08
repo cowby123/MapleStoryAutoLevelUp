@@ -229,4 +229,8 @@ def explain(bot, rec, now):
             main += "（攻擊冷卻中）"
         cmd = (route.get("cmd") or "none none none").split()
         return f"route_{cmd[0]}_{cmd[1]}_{cmd[2]}", main, details
+    # minimap dot-jump filter: show a note when it fires frequently
+    rejects = getattr(bot, "minimap_dot_rejects", 0)
+    if rejects >= 3:
+        details.append(f"小地圖位置穩定化：過濾掉 {rejects} 次跳動")
     return "idle", "待命", details

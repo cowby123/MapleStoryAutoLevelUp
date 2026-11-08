@@ -414,6 +414,9 @@ minimap:
   other_player_color: [0, 0, 255] # 🔴 BGR value of the red other player dot on the minimap
   debug_window_upscale: 4         # 🔍 Zoom factor for the route debug image (for visualization only)
   offset: [0, 0]                  # 📐 Don't set this unless playing on global server
+  max_dot_jump: 12               # ↔️ reject a yellow-dot position that jumps more than this many
+                                 #    route-map px per frame from the last known (another dot on the
+                                 #    minimap, e.g. portal / NPC / another player); 0 = off
 
 patrol:
   # 🚶‍♂️ Patrol Mode
