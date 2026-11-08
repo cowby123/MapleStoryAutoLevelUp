@@ -3367,30 +3367,37 @@ class MapleStoryAutoBot:
         if loc_player_minimap:
             new_pos = (int(round(loc_player_minimap[0] / mm)),
                        int(round(loc_player_minimap[1] / mm)))
-            # Reject if the dot jumps too far from the last known position
-            # (another yellow object on the minimap, e.g. another player's dot
-            # or a portal marker; 2026-11-09 ston map: delta 29x40 every other
-            # frame). On the first frame or after detection-lost recovery,
-            # accept any position.
-            max_jump = int(self.cfg.get("minimap", {}).get("max_dot_jump", 12))
+            # Reject OSCILLATION (another yellow object: the dot flips between
+            # two positions every other frame) but ALLOW large consistent moves
+            # (drops between platforms, teleports: 30-50 px in one frame).
+            # An oscillation is: jumped to a new position AND the new position
+            # is close to the one from 2 frames ago (came back).
             prev = self.loc_player_minimap
+            hist = getattr(self, "_dot_history", collections.deque(maxlen=4))
+            self._dot_history = hist
+            reject = False
+            max_jump = int(self.cfg.get("minimap", {}).get("max_dot_jump", 12))
             if prev != (0, 0) and self.t_minimap_ok > 0 and max_jump > 0:
                 dx = abs(new_pos[0] - prev[0])
                 dy = abs(new_pos[1] - prev[1])
                 if dx > max_jump or dy > max_jump:
-                    self.minimap_dot_rejects = getattr(self, "minimap_dot_rejects", 0) + 1
-                    t = time.time()
-                    if t - getattr(self, "t_dot_reject_log", 0.0) > 5.0:
-                        logger.info(f"[minimap] dot jump rejected: {prev} -> {new_pos} "
-                                    f"(delta {dx},{dy} > {max_jump}); "
-                                    f"total {self.minimap_dot_rejects}")
-                        self.t_dot_reject_log = t
-                    # keep the previous position; still count it as "found"
-                    self.det_counts["player_dot"] += 1
-                    self.t_minimap_ok = t
-                    self.minimap_ok_frame = True
-                    loc_player_minimap = None  # skip the update
-            if loc_player_minimap:
+                    # big jump: check if it's oscillation (close to a recent position)
+                    for old in list(hist)[:-1]:   # not the immediately previous one
+                        if abs(new_pos[0] - old[0]) <= 3 and abs(new_pos[1] - old[1]) <= 3:
+                            reject = True
+                            break
+            if reject:
+                self.minimap_dot_rejects = getattr(self, "minimap_dot_rejects", 0) + 1
+                t = time.time()
+                if t - getattr(self, "t_dot_reject_log", 0.0) > 5.0:
+                    logger.info(f"[minimap] dot oscillation rejected: {prev} -> {new_pos} "
+                                f"(back to a recent position); total {self.minimap_dot_rejects}")
+                    self.t_dot_reject_log = t
+                self.det_counts["player_dot"] += 1
+                self.t_minimap_ok = t
+                self.minimap_ok_frame = True
+            else:
+                hist.append(new_pos)
                 self.loc_player_minimap = new_pos
                 self.det_counts["player_dot"] += 1
                 self.t_minimap_ok = time.time()
