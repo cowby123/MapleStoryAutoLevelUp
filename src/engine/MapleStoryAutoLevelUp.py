@@ -3064,10 +3064,11 @@ class MapleStoryAutoBot:
 
     def check_detection_lost(self):
         '''
-        True while the bot must hold still because the minimap (normal mode) or
-        the player (normal/patrol) has not been found for lost_timeout seconds.
-        Entering the pause releases every key; the keyboard controller and the
-        health monitor send nothing while kb.is_hold is set.
+        True while the bot must hold still because the minimap (normal mode)
+        is not found for lost_timeout seconds. Losing the screen-space player
+        does NOT trigger detection-lost when the minimap dot is found (the
+        character may be hidden under monsters; 2026-11-09 ston: the bot
+        stopped while being attacked). Potions keep working regardless.
         '''
         lcfg = self.cfg.get("detection_lost", {}) or {}
         if not lcfg.get("enable", True):
@@ -3094,7 +3095,11 @@ class MapleStoryAutoBot:
             rune_seeking = True
         if mode == "normal" and now - self.t_minimap_ok > timeout and not rune_seeking:
             reason.append("minimap")
-        if mode in ("normal", "patrol") and now - self.t_player_seen > timeout:
+        # The screen-space player not found is NOT a reason to stop when the
+        # minimap dot is found: the character may be hidden under monsters but
+        # the minimap still shows its position. In patrol mode (no minimap)
+        # the screen-space player is still required.
+        if mode == "patrol" and now - self.t_player_seen > timeout:
             reason.append("player")
         if reason:
             self.det_counts["lost_paused"] += 1
@@ -3324,6 +3329,22 @@ class MapleStoryAutoBot:
                 self.det_counts["player_dot"] += 1
                 self.t_minimap_ok = time.time()
                 self.minimap_ok_frame = True
+
+        # Fallback: screen-space player not found (hidden under monsters,
+        # effects), but the minimap dot IS found: estimate the screen position
+        # from the minimap. This keeps hunting instead of detection-lost.
+        if not player_found and self.minimap_ok_frame and self.loc_player_minimap != (0, 0):
+            mm_s = self.minimap_scale.m if self.minimap_scale and self.minimap_scale.m else self.scale
+            mw = self.img_minimap.shape[1] if self.img_minimap is not None else 1
+            mh = self.img_minimap.shape[0] if self.img_minimap is not None else 1
+            dot_x = self.loc_player_minimap[0] * mm_s
+            dot_y = self.loc_player_minimap[1] * mm_s
+            fw, fh = self.img_frame.shape[1], self.img_frame.shape[0]
+            est_x = int(fw * dot_x / max(1, mw))
+            est_y = int(fh * dot_y / max(1, mh))
+            self.loc_player = (max(0, min(fw - 1, est_x)), max(0, min(fh - 1, est_y)))
+            self.t_player_seen = time.time()
+            self.player_source = "minimap_fallback"
 
         # Get other player location on minimap
         loc_other_players = get_all_other_player_locations_on_minimap(
