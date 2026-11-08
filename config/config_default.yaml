@@ -423,6 +423,12 @@ minimap:
   other_player_color: [0, 0, 255] # 🔴 BGR value of the red other player dot on the minimap
   debug_window_upscale: 4         # 🔍 Zoom factor for the route debug image (for visualization only)
   offset: [0, 0]                  # 📐 Don't set this unless playing on global server
+  scroll_trim: 4                 # ↔️ trim the outer N px of the minimap before matching against map.png
+                                 #    (edge glow and border artifacts; 0 = off)
+  scroll_hold: 2                 # ↔️ a new scroll offset must persist for this many consecutive
+                                 #    frames before it replaces the old one (jitter filter; 0 = off)
+  dot_margin: 6                  # ↔️ exclude the outer N px of the minimap crop from the yellow-dot
+                                 #    search (edge glow from seasonal events bleeds in; 0 = off)
   max_dot_jump: 12               # ↔️ reject a yellow-dot position that jumps more than this many
                                  #    route-map px per frame from the last known (another dot on the
                                  #    minimap, e.g. portal / NPC / another player); 0 = off

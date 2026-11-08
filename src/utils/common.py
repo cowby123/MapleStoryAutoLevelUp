@@ -510,13 +510,16 @@ def get_minimap_loc_size(img_frame, min_size=100):
     # logger.warning("Minimap not found in the game frame.")
     return None  # minimap not found
 
-def get_player_location_on_minimap(img_minimap, minimap_player_color=(136, 255, 255)):
+def get_player_location_on_minimap(img_minimap, minimap_player_color=(136, 255, 255),
+                                   margin=0):
     """
     Detects the player's position on the minimap.
 
     The function works by:
     - Creating a binary mask of all pixels in the minimap that match the configured
     player color exactly.
+    - Excluding the outer `margin` pixels on each side (edge glow from seasonal
+      events bleeds into the minimap and shifts the yellow-pixel average).
     - Verifying that at least 4 matching pixels are found (to avoid false positives).
     - Computing the average of these pixel coordinates to determine the center of
     the player icon on the minimap.
@@ -528,13 +531,16 @@ def get_player_location_on_minimap(img_minimap, minimap_player_color=(136, 255, 
     mask = cv2.inRange(img_minimap,
                         minimap_player_color,
                         minimap_player_color)
+    if margin > 0:
+        h, w = mask.shape[:2]
+        mask[:margin, :] = 0
+        mask[max(0, h - margin):, :] = 0
+        mask[:, :margin] = 0
+        mask[:, max(0, w - margin):] = 0
     coords = cv2.findNonZero(mask)
     if coords is None or len(coords) < 4:
-        # logger.warning(f"Fail to locate player location on minimap.")
         return None
 
-    # Calculate the average location of the matching pixels
-    # (findNonZero is (N,1,2) or (N,2) depending on the OpenCV build)
     avg = coords.reshape(-1, 2).mean(axis=0)
     loc_player_minimap = (int(round(avg[0])), int(round(avg[1])))
 

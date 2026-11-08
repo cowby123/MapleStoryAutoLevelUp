@@ -509,6 +509,9 @@ class MapleStoryAutoBot:
             self.minimap_scale.m = None
             self.t_minimap_scale_try = 0.0
         self.minimap_rect = None
+        self._scroll_confirmed = None
+        self._scroll_candidate = None
+        self._scroll_count = 0
         self.loc_player = (0, 0)
         self.loc_party_red_bar = (0, 0)
         self.t_minimap_ok = self.t_player_seen = 0.0
@@ -895,9 +898,44 @@ class MapleStoryAutoBot:
         '''
         get_player_location_on_global_map
         '''
-        self.loc_minimap_global, score, _ = find_pattern_sqdiff(
-                                        self.img_map,
-                                        self.img_minimap_route)
+        # Trim the outer edge of the minimap crop before matching against
+        # map.png: seasonal glow and border artifacts at the edges can shift
+        # the scroll offset (2026-11-09 ston: Y drifts 80 px)
+        trim = int(self.cfg.get("minimap", {}).get("scroll_trim", 4))
+        tpl = self.img_minimap_route
+        if trim > 0 and tpl.shape[0] > 2 * trim + 10 and tpl.shape[1] > 2 * trim + 10:
+            tpl = tpl[trim:-trim, trim:-trim]
+        raw_loc, score, _ = find_pattern_sqdiff(self.img_map, tpl)
+        # adjust for the trim: the template was shifted inward by `trim`
+        raw_loc = (raw_loc[0] - trim, raw_loc[1] - trim) if trim > 0 else raw_loc
+
+        # Stabilise the scroll offset: only accept a new offset if it persists
+        # for 2+ consecutive frames (jitter on dark/low-contrast minimaps)
+        hold = int(self.cfg.get("minimap", {}).get("scroll_hold", 2))
+        prev = getattr(self, "_scroll_confirmed", None)
+        if prev is not None and hold > 0:
+            dx = abs(raw_loc[0] - prev[0])
+            dy = abs(raw_loc[1] - prev[1])
+            if dx <= 3 and dy <= 3:
+                # same as confirmed: keep it
+                raw_loc = prev
+            else:
+                # different: count consecutive frames
+                cand = getattr(self, "_scroll_candidate", None)
+                if cand is not None and abs(raw_loc[0] - cand[0]) <= 2 and abs(raw_loc[1] - cand[1]) <= 2:
+                    self._scroll_count = getattr(self, "_scroll_count", 0) + 1
+                else:
+                    self._scroll_candidate = raw_loc
+                    self._scroll_count = 1
+                if self._scroll_count >= hold:
+                    self._scroll_confirmed = raw_loc
+                    self._scroll_candidate = None
+                else:
+                    raw_loc = prev   # keep the old offset until the new one stabilises
+        else:
+            self._scroll_confirmed = raw_loc
+
+        self.loc_minimap_global = raw_loc
         self.minimap_global_score = score
 
         x_offset, y_offset = self.cfg["minimap"]["offset"]
@@ -3249,7 +3287,8 @@ class MapleStoryAutoBot:
         if minimap_result is not None:
             loc_player_minimap = get_player_location_on_minimap(
                                     self.img_minimap,
-                                    minimap_player_color=self.cfg["minimap"]["player_color"])
+                                    minimap_player_color=self.cfg["minimap"]["player_color"],
+                                    margin=int(self.cfg.get("minimap", {}).get("dot_margin", 6)))
         if self.minimap_scale is None:
             mm = 1.0
         else:
