@@ -105,6 +105,14 @@ img.live{aspect-ratio:1366/768;object-fit:contain}
 #buffst,#cyclest{table-layout:fixed}
 #buffst td,#cyclest td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 section h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Tabs */
+.tab-bar{display:flex;gap:0;background:var(--card);border-bottom:2px solid var(--line);padding:0 12px;overflow-x:auto;scrollbar-width:none;position:sticky;top:88px;z-index:4}
+.tab-bar::-webkit-scrollbar{display:none}
+.tab-btn{padding:10px 16px;border:none;background:none;font:inherit;color:var(--mut);cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;margin-bottom:-2px}
+.tab-btn.active{color:var(--acc);border-bottom-color:var(--acc);font-weight:700}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.tab-save{max-width:1100px;margin:8px auto;padding:0 12px}
 </style>
 </head>
 <body>
@@ -126,6 +134,14 @@ section h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   <div id="now-keyrow"><span class="msg">按著的鍵：</span><span id="now-keys"></span></div>
   <div id="now-barrow"><span class="msg">血 / 魔 / 經驗（HP / MP / EXP）：</span><span id="now-bars"></span></div>
 </div>
+<div class="tab-bar" id="tab-bar">
+  <button class="tab-btn active" data-tab="status" onclick="switchTab('status')">狀態</button>
+  <button class="tab-btn" data-tab="protect" onclick="switchTab('protect')">人物保護</button>
+  <button class="tab-btn" data-tab="combat" onclick="switchTab('combat')">攻擊自動化</button>
+  <button class="tab-btn" data-tab="advanced" onclick="switchTab('advanced')">進階設定</button>
+</div>
+<form id="form" onsubmit="return false" style="display:contents">
+<div class="tab-panel active" id="tab-status">
 <main>
   <section>
     <h2>畫面</h2>
@@ -192,6 +208,36 @@ section h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     <h2>練功 / 休息循環</h2>
     <div id="cycle-box" style="height:250px;overflow:auto"><table id="cyclest" class="cycle"></table></div>
   </section>
+</main>
+</div>
+<div class="tab-panel" id="tab-protect">
+<main>
+  <section class="wide">
+    <h2>人物保護</h2>
+    <div id="form-protect"></div>
+    <div class="tab-save"><div class="row">
+      <button class="pri" onclick="save(true)">儲存並套用（需要時重新啟動）</button>
+      <button onclick="save(false)">只儲存</button>
+      <button onclick="loadConfig()">放棄修改</button>
+    </div><div class="save-msg msg"></div></div>
+  </section>
+</main>
+</div>
+<div class="tab-panel" id="tab-combat">
+<main>
+  <section class="wide">
+    <h2>攻擊自動化</h2>
+    <div id="form-combat"></div>
+    <div class="tab-save"><div class="row">
+      <button class="pri" onclick="save(true)">儲存並套用（需要時重新啟動）</button>
+      <button onclick="save(false)">只儲存</button>
+      <button onclick="loadConfig()">放棄修改</button>
+    </div><div class="save-msg msg"></div></div>
+  </section>
+</main>
+</div>
+<div class="tab-panel" id="tab-advanced">
+<main>
 
   <section class="wide" id="sec-rp" hidden>
     <h2>安全點與安全路線（目前地圖：<span id="rp-map"></span>）</h2>
@@ -245,8 +291,8 @@ section h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   </section>
 
   <section class="wide">
-    <h2>設定</h2>
-    <div id="prof" class="profbar">
+    <h2>進階設定</h2>
+<div id="prof" class="profbar">
       <div class="row">
         <b>角色設定檔：</b><select id="pf-sel" style="width:auto;max-width:100%"></select>
         <button type="button" onclick="pfDo('switch')">切換</button>
@@ -269,16 +315,17 @@ section h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     </div>
     <p class="msg">存到 <code id="ufile"></code>（最後一層，不改內建設定檔）。像素值是「參考尺寸 1296×700」的值，會依遊戲解析度自動縮放。</p>
     <label class="row msg"><input type="checkbox" id="adv"> 進階：顯示設定名稱（除錯用）</label>
-    <form id="form" onsubmit="return false"></form>
-    <div class="row">
+    <div id="form-advanced"></div>
+    <div class="tab-save"><div class="row">
       <button class="pri" onclick="save(true)">儲存並套用（需要時重新啟動）</button>
       <button onclick="save(false)">只儲存</button>
       <button onclick="loadConfig()">放棄修改</button>
       <button class="danger" onclick="resetCfg()">清除我的設定</button>
-    </div>
-    <div id="save-msg" class="msg"></div>
+    </div><div id="save-msg" class="msg"></div></div>
   </section>
 </main>
+</div>
+</form>
 
 <dialog id="dlg">
   <h3 style="margin-top:0;color:var(--live)">切到「真的輸入」？</h3>
@@ -458,23 +505,29 @@ const CHOICE_CN = {
   'rune_curse.resume': {curse_gone: '等詛咒解除', rest_time: '休息一段時間'},
   'watchdog.last_attack_timeout_action': {change_channel: '換頻道', go_home: '回城並停止'},
 };
-const GROUPS = [
+const GROUPS_PROTECT = [
+  ['喝水', ['health_monitor.enable', 'health_monitor.add_hp_percent', 'health_monitor.add_mp_percent', 'health_monitor.add_hp_cooldown', 'health_monitor.add_mp_cooldown', 'health_monitor.fps_limit', 'health_monitor.force_heal', 'health_monitor.return_home_if_no_potion', 'health_monitor.return_home_watch_dog_timeout']],
+  ['怪物圖鑑', ['book_dismiss.enable', 'book_dismiss.force_in_dry_run']],
+  ['符文 / 詛咒', ['curse.stop_while_cursed', 'curse.action', 'rune_curse.enable', 'rune_curse.seek_timeout', 'rune_curse.interact_key', 'rune_curse.interact_every_px', 'rune_curse.interact_cooldown', 'rune_curse.resume', 'rune_curse.rest_minutes', 'rune_curse.sweep_tap_s', 'rune_curse.sweep_tap_gap', 'rune_curse.sweep_px_per_tap', 'rune_curse.sweep_max_px', 'rune_curse.sweep_up_interval', 'rune_curse.sweep_away_s', 'rune_curse.sweep_timeout', 'rune_curse.minigame_wait', 'rune_curse.minigame_retries', 'rune_curse.capture_frames', 'rune_curse.capture_interval', 'rune_curse.capture_max', 'rune_curse.capture_rotate']],
+  ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
+  ['類人保護', ['human_pause.enable', 'human_pause.interval_minutes', 'human_pause.pause_seconds', 'human_pause.long_enable', 'human_pause.long_chance_percent', 'human_pause.long_seconds']],
+  ['偵測不到與安全', ['detection_lost.timeout', 'detection_lost.minimap_grace_s', 'edge_teleport.enable', 'watchdog.timeout', 'route.jump_runup', 'route.jump_stuck_s', 'route.jump_runup_back_px']],
+];
+const GROUPS_COMBAT = [
   ['地圖與模式', ['bot.map', 'route.files', 'bot.mode', 'bot.attack']],
   ['按鍵', ['key.directional_attack', 'key.aoe_skill', 'key.jump', 'key.teleport', 'key.add_hp', 'key.add_mp', 'key.party', 'key.return_home']],
   ['增益技能（Buff）', ['buff_skill.items']],
-  ['找自己的角色', ['player_detect.mode', 'player_detect.nametag_thres', 'player_detect.nametag_local_timeout']],
-  ['喝水', ['health_monitor.enable', 'health_monitor.add_hp_percent', 'health_monitor.add_mp_percent', 'health_monitor.add_hp_cooldown', 'health_monitor.add_mp_cooldown', 'health_monitor.fps_limit', 'health_monitor.force_heal', 'health_monitor.return_home_if_no_potion', 'health_monitor.return_home_watch_dog_timeout']],
   ['攻擊（單體）', ['directional_attack.stand_while_target', 'directional_attack.target_hold_s', 'directional_attack.target_commit_s', 'directional_attack.shape', 'directional_attack.wedge_preset', 'directional_attack.wedge_skill_level', 'directional_attack.wedge_start', 'directional_attack.wedge_range', 'directional_attack.wedge_slope', 'directional_attack.wedge_center_height', 'directional_attack.wedge_feet_offset', 'directional_attack.dead_zone_action', 'directional_attack.range_x', 'directional_attack.range_y', 'directional_attack.cooldown']],
   ['群體技能（依怪物數量）', ['attack.mode', 'attack.aoe_min_count', 'attack.aoe_cooldown', 'attack.aoe_shape', 'aoe_skill.range_x', 'aoe_skill.range_y', 'attack.aoe_front_start', 'attack.aoe_front_range', 'attack.aoe_height', 'attack.aoe_wedge_slope', 'attack.aoe_dy', 'attack.aoe_count_window_s', 'attack.aoe_count_stat']],
   ['找怪', ['monster_detect.mode', 'monster_detect.diff_thres', 'monster_detect.search', 'monster_detect.search_box_margin', 'monster_detect.roi_left', 'monster_detect.roi_right', 'monster_detect.roi_up', 'monster_detect.roi_down', 'monster_detect.interval_frames']],
-  ['類人保護', ['human_pause.enable', 'human_pause.interval_minutes', 'human_pause.pause_seconds', 'human_pause.long_enable', 'human_pause.long_chance_percent', 'human_pause.long_seconds']],
-  ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
-  ['安全與其他', ['route.jump_runup', 'route.jump_stuck_s', 'route.jump_runup_back_px', 'edge_teleport.enable', 'watchdog.timeout', 'detection_lost.timeout', 'detection_lost.minimap_grace_s', 'system.fps_limit_main']],
-  ['怪物圖鑑', ['book_dismiss.enable', 'book_dismiss.force_in_dry_run']],
-  ['符文 / 詛咒', ['curse.stop_while_cursed', 'curse.action', 'rune_curse.enable', 'rune_curse.seek_timeout', 'rune_curse.interact_key', 'rune_curse.interact_every_px', 'rune_curse.interact_cooldown', 'rune_curse.resume', 'rune_curse.rest_minutes', 'rune_curse.sweep_tap_s', 'rune_curse.sweep_tap_gap', 'rune_curse.sweep_px_per_tap', 'rune_curse.sweep_max_px', 'rune_curse.sweep_up_interval', 'rune_curse.sweep_away_s', 'rune_curse.sweep_timeout', 'rune_curse.minigame_wait', 'rune_curse.minigame_retries', 'rune_curse.capture_frames', 'rune_curse.capture_interval', 'rune_curse.capture_max', 'rune_curse.capture_rotate']],
-  ['其他功能開關（預設都關）', ['rune_find.enable', 'rune_find.near_rune_duration', 'watchdog.last_attack_enable', 'watchdog.last_attack_timeout', 'watchdog.last_attack_timeout_action', 'scheduled_channel_switching.enable', 'scheduled_channel_switching.interval_seconds', 'channel_change.enable', 'wingpu.ensure_party_on_start']],
-  ['其他時間設定', ['buff_skill.action_cooldown', 'aoe_skill.cooldown', 'teleport.cooldown', 'patrol.patrol_attack_interval', 'system.fps_limit_window_capturor', 'wingpu.debug_interval', 'wingpu.redetect_interval', 'wingpu.mjpeg_fps', 'wingpu.mjpeg_scale']],
+  ['找自己的角色', ['player_detect.mode', 'player_detect.nametag_thres', 'player_detect.nametag_local_timeout']],
 ];
+const GROUPS_ADVANCED = [
+  ['其他功能開關（預設都關）', ['rune_find.enable', 'rune_find.near_rune_duration', 'watchdog.last_attack_enable', 'watchdog.last_attack_timeout', 'watchdog.last_attack_timeout_action', 'scheduled_channel_switching.enable', 'scheduled_channel_switching.interval_seconds', 'channel_change.enable', 'wingpu.ensure_party_on_start']],
+  ['其他時間設定', ['buff_skill.action_cooldown', 'aoe_skill.cooldown', 'teleport.cooldown', 'patrol.patrol_attack_interval', 'system.fps_limit_window_capturor', 'wingpu.debug_interval', 'wingpu.redetect_interval', 'wingpu.mjpeg_fps', 'wingpu.mjpeg_scale', 'system.fps_limit_main']],
+];
+const GROUPS = [...GROUPS_PROTECT, ...GROUPS_COMBAT, ...GROUPS_ADVANCED];
+
 let CFG = null, LIVE = false;
 // sub-settings shown only while their feature is on (form values)
 const DEPS = {
@@ -583,7 +636,7 @@ function applyDeps() {
   if (one) $('f-attack-aoe_one').hidden = one.value !== 'one';
   // sections that belong to an option
   const vals = CFG.values;
-  $('sec-rp').hidden = !(vals['hunt_cycle.enable'] && vals['hunt_cycle.rest_action'] === 'safe_spot');
+  if ($('sec-rp')) $('sec-rp').hidden = !(vals['hunt_cycle.enable'] && vals['hunt_cycle.rest_action'] === 'safe_spot');
 }
 
 async function api(path, body) {
@@ -899,11 +952,14 @@ async function loadConfig(keepMsg) {
   CFG = await api('api/config');
   $('ufile').textContent = CFG.user_file;
   const byName = Object.fromEntries(CFG.fields.map(f => [f.name, f]));
-  let html = '';
-  for (const [title, names] of GROUPS) {
-    html += `<fieldset><legend>${esc(title)}</legend><div class="grid">` + names.map(n => fieldHtml(byName[n], CFG.values[n])).join('') + '</div></fieldset>';
+  function renderGroups(groups) {
+    return groups.map(([title, names]) =>
+      `<fieldset><legend>${esc(title)}</legend><div class="grid">` + names.map(n => fieldHtml(byName[n], CFG.values[n])).join('') + '</div></fieldset>'
+    ).join('');
   }
-  $('form').innerHTML = html;
+  $('form-protect').innerHTML = renderGroups(GROUPS_PROTECT);
+  $('form-combat').innerHTML = renderGroups(GROUPS_COMBAT);
+  $('form-advanced').innerHTML = renderGroups(GROUPS_ADVANCED);
   $('f-wingpu-profile_autodetect').checked = !!CFG.values['wingpu.profile_autodetect'];
   pfLoad();
   $('nt-details').open = CFG.values['player_detect.mode'] !== 'party_bar';
@@ -914,7 +970,7 @@ async function loadConfig(keepMsg) {
   applyDeps();
   keyDupes();
   ntStatus();
-  if (!keepMsg) $('save-msg').textContent = '';
+  if (!keepMsg) document.querySelectorAll('#save-msg,.save-msg').forEach(e => e.textContent = '');
   if (CFG.values['hunt_cycle.enable'] && CFG.values['hunt_cycle.rest_action'] === 'safe_spot') rpLoad();
 }
 function collect() {
@@ -945,14 +1001,14 @@ async function save(apply) {
       const el = $('e-f-' + k.replace('.', '-'));
       if (el) el.textContent = msg; else alert(((LABELS[k] || [])[0] || k) + '：' + msg);
     }
-    $('save-msg').textContent = '沒有儲存：請修正紅字。';
+    document.querySelectorAll('#save-msg,.save-msg').forEach(e => e.textContent = '沒有儲存：請修正紅字。');
     return;
   }
   const need = r.needs_restart || [];
   const hc = r.hunt_cycle;
   let msg = need.length ? `已儲存。${need.length} 項要重新啟動才生效（${need.map(n => (LABELS[n] || [])[0] || n).join('、')}），其餘已立即套用。` : '已儲存，已立即套用（不用重新啟動）。';
   if (hc && hc.enabled && hc.remaining_s !== null) msg += ` 目前${hc.phase_cn}，還剩 ${fmtS(hc.remaining_s)}。`;
-  $('save-msg').textContent = msg + (apply && need.length ? ' 重新啟動中…' : '');
+  document.querySelectorAll('#save-msg,.save-msg').forEach(e => e.textContent = msg + (apply && need.length ? ' 重新啟動中…' : ''));
   if (apply && need.length) restart(); else { poll(); loadConfig(true); }
 }
 async function resetCfg() {
@@ -1130,6 +1186,14 @@ $('f-wingpu-profile_autodetect').onchange = async e => {
   $('pf-msg').textContent = r.ok ? (e.target.checked ? '自動偵測角色：開' : '自動偵測角色：關') : '沒有存：' + errText(r.errors);
 };
 $('adv').onchange = () => { document.body.classList.toggle('adv', $('adv').checked); try { localStorage.setItem('msbot_adv', $('adv').checked ? '1' : '0'); } catch (e) {} };
+// Tab switching
+function switchTab(id) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + id));
+  try { localStorage.setItem('msbot_tab', id); } catch(e) {}
+}
+try { const t = localStorage.getItem('msbot_tab'); if (t && $('tab-' + t)) switchTab(t); } catch(e) {}
+
 loadConfig();
 poll();
 setInterval(poll, 1000);
