@@ -132,7 +132,7 @@ FIELDS = [
     ("directional_attack", "target_commit_s", "num", (0, 5)),
     ("aoe_skill", "range_x", "int", (10, 1500)),
     ("aoe_skill", "range_y", "int", (10, 800)),
-    ("monster_detect", "mode", "choice", ["contour_only", "color", "grayscale", "template_free"]),
+    ("monster_detect", "mode", "choice", ["contour_only", "color", "grayscale", "template_free", "yolo"]),
     ("monster_detect", "diff_thres", "num", (0, 1)),
     ("monster_detect", "search_box_margin", "int", (0, 500)),
     ("monster_detect", "search", "choice", ["roi", "full", "attack"]),

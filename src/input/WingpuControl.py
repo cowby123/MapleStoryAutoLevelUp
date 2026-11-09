@@ -311,8 +311,9 @@ class WingpuControl:
                                resting=getattr(kb, "is_resting", False))
                           if getattr(bot, "hunt_cycle", None) is not None else None,
             "nametag": bot.nametag.status() if getattr(bot, "nametag", None) is not None else None,
-            "mob_search": {"mode": bot.cfg["monster_detect"].get("search", "attack"),
-                           "box": list(bot.mob_search_box) if getattr(bot, "mob_search_box", None) else None},
+            "mob_search": {"mode": bot.cfg["monster_detect"].get("mode", "color") if bot.cfg["monster_detect"].get("mode") == "yolo" else bot.cfg["monster_detect"].get("search", "attack"),
+                           "box": list(bot.mob_search_box) if getattr(bot, "mob_search_box", None) else None,
+                           "yolo_ms": round(getattr(bot, "yolo_ms", 0), 1) if bot.cfg["monster_detect"].get("mode") == "yolo" else None},
             "pending_restart": self.pending_restart,
             "profile": self.profile_brief(),
             "input": get_keyboard().status(),

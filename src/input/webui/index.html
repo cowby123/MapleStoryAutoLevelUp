@@ -123,6 +123,7 @@ section h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   <span id="b-lost" class="badge" style="visibility:hidden"></span>
   <span id="b-input" class="badge">模擬（不送輸入）</span>
   <span id="b-prof" class="badge">角色：…</span>
+  <span id="b-yolo" class="badge" style="visibility:hidden">YOLO</span>
   <span id="b-pending" class="badge b-warn" style="visibility:hidden">有設定要重新啟動後才生效</span>
   <span id="b-cycle" class="badge" style="visibility:hidden"></span>
 </header>
@@ -407,7 +408,7 @@ const LABELS = {
   'attack.aoe_count_stat': ['數怪取', '最多的一次（預設，漏偵測時比較穩）；中位數（誤判多時比較穩）'],
   'aoe_skill.cooldown': ['範圍技間隔（秒，舊做法）', '只在「攻擊方式（基本）＝只用範圍技」時用'],
   // 找怪
-  'monster_detect.mode': ['怪物辨識方式', '彩色比對（建議）；輪廓（最省 CPU、誤判多）；灰階；不用模板'],
+  'monster_detect.mode': ['怪物辨識方式', '彩色比對（建議）；輪廓（最省 CPU、誤判多）；灰階；不用模板；YOLO（AI 模型，需 models/<地圖>.onnx）'],
   'monster_detect.diff_thres': ['怪物比對門檻', '0–1，越小越嚴；彩色比對一般 0.14'],
   'monster_detect.search': ['在哪裡找怪', '角色周圍的框（建議，下面四個值）；整個畫面（慢、誤判多）；攻擊範圍再外擴（原本的做法）'],
   'monster_detect.search_box_margin': ['找怪範圍外擴', '「攻擊範圍再外擴」時多找幾像素（參考像素）；一般 80'],
@@ -501,7 +502,7 @@ const CHOICE_CN = {
   'directional_attack.dead_zone_action': {ignore: '不理它', back_off: '退開'},
   'attack.mode': {single: '單體（預設）', aoe: '只用群體技能', auto: '自動（依數量）'},
   'attack.aoe_count_stat': {max: '最多的一次', median: '中位數'},
-  'monster_detect.mode': {color: '彩色比對', contour_only: '輪廓', grayscale: '灰階', template_free: '不用模板'},
+  'monster_detect.mode': {color: '彩色比對', contour_only: '輪廓', grayscale: '灰階', template_free: '不用模板', yolo: 'YOLO (AI)'},
   'monster_detect.search': {roi: '角色周圍的框', full: '整個畫面', attack: '攻擊範圍再外擴'},
   'hunt_cycle.rest_action': {stop: '原地停手', safe_spot: '走到安全點', go_home: '回城後結束'},
   'curse.action': {stop: '原地停手', safe_spot: '走到安全點'},
@@ -691,6 +692,9 @@ async function poll() {
   $('sw-text').textContent = LIVE ? '真的輸入：練功程式正在對遊戲按鍵' : '模擬模式：不會送任何按鍵到遊戲';
   if (s.profile) $('b-prof').textContent = '角色：' + (s.profile.name || s.profile.id || '-');
   vis('b-pending', !s.pending_restart);
+  const isYolo = s.mob_search && s.mob_search.mode === 'yolo';
+  vis('b-yolo', !isYolo);
+  if (isYolo) { $('b-yolo').textContent = 'YOLO'; $('b-yolo').className = 'badge b-ok'; }
   const hr = det.hit_rate || {};
   const pct = v => v === undefined ? '-' : Math.round(v * 100) + '%';
   const mm = s.minimap || {}, pl = s.player || {};
@@ -700,7 +704,7 @@ async function poll() {
     ['玩家', yes(det.player_age_s !== null && det.player_age_s < 3, '有', '沒有') + ` <span class="msg">${s.player_source === 'party_bar' ? '隊伍紅條' : s.player_source === 'nametag' ? '名牌' : '這張沒找到'}；命中 ${pct(hr.player)}（紅條 ${pct(hr.player_party_bar)}、名牌 ${pct(hr.player_nametag)}），位置 ${esc(JSON.stringify(pl.loc))}</span>`],
     ['名牌', s.nametag && s.nametag.loaded ? `分數 ${s.nametag.score ?? '-'}（${s.nametag.search === 'local' ? '附近找' : s.nametag.search === 'global' ? '全畫面找' : '-'}）` : '<span class="msg">沒有名牌模板</span>'],
     ['小地圖上的玩家', esc(JSON.stringify(mm.player_on_minimap)) + ' → 路線 ' + esc(JSON.stringify(mm.player_global))],
-    ['怪物', (s.monsters || []).length + ' 隻' + (s.mob_search ? ` <span class="msg">找怪範圍：${esc(SEARCH_CN[s.mob_search.mode] || s.mob_search.mode)} ${esc(JSON.stringify(s.mob_search.box))}</span>` : '')],
+    ['怪物', (s.monsters || []).length + ' 隻' + (s.mob_search ? ` <span class="msg">找怪範圍：${esc(SEARCH_CN[s.mob_search.mode] || s.mob_search.mode)} ${esc(JSON.stringify(s.mob_search.box))}</span>` : '') + (s.mob_search && s.mob_search.mode === 'yolo' ? ` <span class="badge b-ok">YOLO ${s.mob_search.yolo_ms ? s.mob_search.yolo_ms + ' ms' : ''}</span>` : '')],
     ['指令', esc(cmdText(s.command)) + (s.kb_hold ? ' <span class="badge b-bad">停手</span>' : '')],
     ['解析度', esc((res.frame_wh || []).join('×')) + `，縮放 ${res.ui_scale} 倍`],
     ['速度 / CPU', `每秒 ${s.loop_fps} 張（FPS），用 ${s.process_cpu_cores} 個核心`],

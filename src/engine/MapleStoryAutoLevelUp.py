@@ -155,6 +155,8 @@ class MapleStoryAutoBot:
         self.player_source = None # "party_bar" | "nametag" | None (this frame)
         self.t_nametag_check = 0.0
         self.mob_search_box = None # (x0, y0, x1, y1) of the last monster search
+        self.yolo_detector = None  # YoloDetector (ONNX) for YOLO monster detection mode
+        self.yolo_ms = 0.0        # last YOLO inference time (ms)
         # Hunt / rest cycles (hunt_cycle)
         self.hunt_cycle = None
         self.safe_plan = {} # walking to the safe spot: target, position, command
@@ -313,6 +315,31 @@ class MapleStoryAutoBot:
 
         # Print mode on log
         logger.info(f"[load_config] Config AutoBot as {cfg['bot']['mode']} mode")
+
+        # YOLO model: if models/<map>.onnx exists, load it (mode "yolo" uses it;
+        # other modes ignore it; the model is tiny and loads in <100 ms).
+        self.yolo_detector = None
+        self.yolo_ms = 0.0
+        if cfg["bot"]["mode"] == "normal":
+            map_name = cfg["bot"]["map"]
+            model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__)))), "models", f"{map_name}.onnx")
+            if os.path.isfile(model_path):
+                try:
+                    from tools.yolo_detect import YoloDetector
+                    self.yolo_detector = YoloDetector(
+                        model_path,
+                        conf_thres=float(cfg["monster_detect"].get("yolo_conf", 0.25)),
+                        iou_thres=float(cfg["monster_detect"].get("yolo_iou", 0.45)),
+                    )
+                    self.yolo_detector.warmup()
+                    logger.info(f"[YOLO] loaded {model_path}")
+                except Exception as e:
+                    logger.warning(f"[YOLO] failed to load {model_path}: {e}")
+                    self.yolo_detector = None
+            if cfg["monster_detect"]["mode"] == "yolo" and self.yolo_detector is None:
+                logger.warning("[YOLO] mode set to 'yolo' but no model found; falling back to 'color'")
+                cfg["monster_detect"]["mode"] = "color"
 
         # Update cfg
         self.cfg = cfg
@@ -1409,6 +1436,57 @@ class MapleStoryAutoBot:
 
         s = self.scale
         mode = self.cfg["monster_detect"]["mode"]
+
+        # ---- YOLO mode: run the neural network on the full frame, filter to ROI ----
+        if mode == "yolo" and self.yolo_detector is not None:
+            t0 = time.time()
+            detections = self.yolo_detector.detect(self.img_frame)
+            self.yolo_ms = (time.time() - t0) * 1000
+            monsters = []
+            for det in detections:
+                dx, dy = det["position"]
+                dh, dw = det["size"]
+                # Keep only detections that overlap the search ROI
+                if dx + dw < x0 or dx > x1 or dy + dh < y0 or dy > y1:
+                    continue
+                # Exclude the player character area
+                cx_roi = dx - x0 + dw // 2
+                cy_roi = dy - y0 + dh // 2
+                if char_x_min <= cx_roi <= char_x_max and char_y_min <= cy_roi <= char_y_max:
+                    continue
+                monsters.append(det)
+            # Skip the template matching loop below; go straight to health-bar + debug
+            # (NMS is already done inside YoloDetector)
+            # Draw YOLO boxes in cyan
+            for m in monsters:
+                draw_rectangle(self.img_frame_debug, m["position"], m["size"],
+                               (255, 255, 0), f"Y{m['score']:.2f}")
+            draw_rectangle(self.img_frame_debug, (x0, y0), (y1-y0, x1-x0),
+                           (255, 0, 0), "Mob Detection Box (YOLO)")
+            # Also check health bars if enabled
+            if self.cfg["monster_detect"]["with_enemy_hp_bar"]:
+                mask = cv2.inRange(img_roi,
+                                   np.array(self.cfg["monster_detect"]["hp_bar_color"]),
+                                   np.array(self.cfg["monster_detect"]["hp_bar_color"]))
+                num_labels, labels, stats, centroids = \
+                    cv2.connectedComponentsWithStats(mask, connectivity=8)
+                for i in range(1, num_labels):
+                    hx, hy, hw, hh, area = stats[i]
+                    if area < 3:
+                        continue
+                    hy += sc(10, s)
+                    hx = max(0, hx)
+                    hy = max(0, hy)
+                    hw = sc(70, s)
+                    hh = self.monster_min_h if self.monster_min_h > 0 else sc(40, s)
+                    monsters.append({
+                        "name": "Health Bar",
+                        "position": (x0 + hx, y0 + hy),
+                        "size": (hh, hw),
+                        "score": 1.0,
+                    })
+            return monsters
+
         img_roi_blur = None
         img_roi_gray = None
         if self.cfg["bot"]["mode"] != "patrol" and mode == "contour_only":
