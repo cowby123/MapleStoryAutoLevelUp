@@ -331,6 +331,7 @@ class MapleStoryAutoBot:
                         model_path,
                         conf_thres=float(cfg["monster_detect"].get("yolo_conf", 0.25)),
                         iou_thres=float(cfg["monster_detect"].get("yolo_iou", 0.45)),
+                        input_size=int(cfg["monster_detect"].get("yolo_input_size", 320)),
                     )
                     self.yolo_detector.warmup()
                     logger.info(f"[YOLO] loaded {model_path}")
@@ -1437,26 +1438,38 @@ class MapleStoryAutoBot:
         s = self.scale
         mode = self.cfg["monster_detect"]["mode"]
 
-        # ---- YOLO mode: run the neural network on the full frame, filter to ROI ----
+        # ---- YOLO mode: run the neural network on the CROPPED ROI, not the full frame ----
+        # Running on the full 1366x768 frame costs ~250 ms; the ROI (~400x300) takes ~30-40 ms.
+        # Cache the result for interval_frames to save more CPU.
         if mode == "yolo" and self.yolo_detector is not None:
-            t0 = time.time()
-            detections = self.yolo_detector.detect(self.img_frame)
-            self.yolo_ms = (time.time() - t0) * 1000
-            monsters = []
-            for det in detections:
-                dx, dy = det["position"]
-                dh, dw = det["size"]
-                # Keep only detections that overlap the search ROI
-                if dx + dw < x0 or dx > x1 or dy + dh < y0 or dy > y1:
-                    continue
-                # Exclude the player character area
-                cx_roi = dx - x0 + dw // 2
-                cy_roi = dy - y0 + dh // 2
-                if char_x_min <= cx_roi <= char_x_max and char_y_min <= cy_roi <= char_y_max:
-                    continue
-                monsters.append(det)
-            # Skip the template matching loop below; go straight to health-bar + debug
-            # (NMS is already done inside YoloDetector)
+            yolo_every = max(1, int(self.cfg["monster_detect"].get("interval_frames", 2)))
+            self._yolo_n = getattr(self, "_yolo_n", 0) + 1
+            run_yolo = (yolo_every == 1 or self._yolo_n % yolo_every == 1
+                        or not hasattr(self, "_yolo_cache"))
+            if run_yolo:
+                t0 = time.time()
+                # Run YOLO on the cropped ROI (much smaller than full frame)
+                detections = self.yolo_detector.detect(img_roi)
+                self.yolo_ms = (time.time() - t0) * 1000
+                monsters = []
+                for det in detections:
+                    dx, dy = det["position"]
+                    dh, dw = det["size"]
+                    # Exclude the player character area (coordinates are in ROI space)
+                    cx = dx + dw // 2
+                    cy = dy + dh // 2
+                    if char_x_min <= cx <= char_x_max and char_y_min <= cy <= char_y_max:
+                        continue
+                    # Map back to full-frame coordinates
+                    monsters.append({
+                        "name": det["name"],
+                        "position": (dx + x0, dy + y0),
+                        "size": det["size"],
+                        "score": det["score"],
+                    })
+                self._yolo_cache = monsters
+            else:
+                monsters = getattr(self, "_yolo_cache", [])
             # Draw YOLO boxes in cyan
             for m in monsters:
                 draw_rectangle(self.img_frame_debug, m["position"], m["size"],
