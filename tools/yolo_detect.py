@@ -96,7 +96,7 @@ class YoloDetector:
     '''
 
     def __init__(self, model_path, conf_thres=0.25, iou_thres=0.45,
-                 input_size=640):
+                 input_size=320):
         if ort is None:
             raise ImportError("onnxruntime is not installed")
         if not os.path.isfile(model_path):
