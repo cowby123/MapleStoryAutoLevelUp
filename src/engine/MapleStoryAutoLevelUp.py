@@ -1188,6 +1188,87 @@ class MapleStoryAutoBot:
                             best_dist = dist
         return best
 
+    def _climb_retry(self, color_code, color_code_up_down):
+        '''
+        The route says "up" but the minimap Y hasn't changed for 0.5 s: the
+        character missed the rope. Walk toward it and retry. Give up after 3.
+        '''
+        now = time.time()
+        cr = getattr(self, "_climb_state", None)
+        if cr is None:
+            cr = self._climb_state = {"phase": None, "t": 0, "tries": 0, "y_hist": collections.deque(maxlen=10)}
+        is_up = self.cmd_move_y == "up"
+        dot_y = self.loc_player_minimap[1] if self.loc_player_minimap != (0, 0) else None
+
+        # track dot Y while climbing
+        if dot_y is not None:
+            cr["y_hist"].append((now, dot_y))
+
+        # not climbing: reset
+        if not is_up and cr["phase"] is None:
+            cr["tries"] = 0
+            cr["y_hist"].clear()
+            return
+        # actually climbing (Y changing): reset
+        if is_up and self.is_on_ladder:
+            cr["phase"] = None
+            cr["tries"] = 0
+            return
+        # in retry phase: walk toward rope
+        if cr["phase"] == "walk":
+            if now - cr["t"] > 0.3:
+                cr["phase"] = "retry"
+                cr["t"] = now
+                self.cmd_move_x = "none"
+                self.cmd_move_y = "up"
+                self.cmd_action = "none"
+                self.why("climb_retry", phase="retry", tries=cr["tries"])
+            return
+        if cr["phase"] == "retry":
+            if now - cr["t"] > 0.5:
+                cr["phase"] = None  # check again
+            else:
+                self.cmd_move_y = "up"
+            return
+        # check: Y hasn't changed for 0.5 s while route says up?
+        if not is_up:
+            return
+        hist = cr["y_hist"]
+        if len(hist) < 3 or now - hist[0][0] < 0.5:
+            return
+        y_range = max(h[1] for h in hist) - min(h[1] for h in hist)
+        if y_range > 1:
+            return  # Y is changing, climb is working
+        # climb failed
+        cr["tries"] += 1
+        if cr["tries"] > 3:
+            # give up: use the "up" override
+            alt = self._nearest_non_up(max(15, self.cfg["route"]["search_range"]))
+            if alt is not None:
+                self.cmd_move_x, self.cmd_move_y, self.cmd_action = alt["command"].split()
+                self.why("climb_giveup", tries=cr["tries"])
+            cr["tries"] = 0
+            cr["y_hist"].clear()
+            return
+        # walk toward the rope: the "up" colour's X on the route map
+        rope_x = None
+        for cc in (color_code_up_down, color_code):
+            if cc and "up" in cc["command"]:
+                rope_x = cc["pixel"][0]
+                break
+        px = self.loc_player_global[0]
+        if rope_x is not None and abs(rope_x - px) > 1:
+            self.cmd_move_x = "left" if rope_x < px else "right"
+        else:
+            self.cmd_move_x = "left" if cr["tries"] % 2 == 1 else "right"
+        self.cmd_move_y = "none"
+        self.cmd_action = "none"
+        cr["phase"] = "walk"
+        cr["t"] = now
+        cr["y_hist"].clear()
+        self.why("climb_retry", phase="walk", tries=cr["tries"],
+                 rope_x=rope_x, player_x=px)
+
     def wedge_params(self):
         '''
         (start, range, slope, center_dy) of the directional wedge in frame
@@ -2134,6 +2215,11 @@ class MapleStoryAutoBot:
                  updown_dist=(color_code_up_down["distance"] if color_code_up_down else None),
                  cmd=f"{self.cmd_move_x} {self.cmd_move_y} {self.cmd_action}",
                  kept_previous=not (color_code or color_code_up_down))
+
+        # Climb retry: the route says "up" but the minimap Y hasn't changed
+        # for 0.5 s: the character is not on the rope (missed it). Walk toward
+        # the rope's X position and retry. Give up after 3 attempts.
+        self._climb_retry(color_code, color_code_up_down)
 
         # teleport away from edge to avoid falling off cliff
         if self.is_near_edge() and \

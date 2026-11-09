@@ -224,6 +224,11 @@ def explain(bot, rec, now):
         return "stand_hold", f"目標剛消失，再站 {rest:.1f} 秒", details
     if "dead_zone_back_off" in kinds:
         return "back_off", f"怪太近（在盲區），往{DIR.get(kinds['dead_zone_back_off'].get('to'), '')}退開", details
+    if "climb_retry" in kinds:
+        w = kinds["climb_retry"]
+        return "climb_retry", f"爬繩子失敗（Y 不動），走向繩子重試（第 {w.get('tries', 0)} 次）", details
+    if "climb_giveup" in kinds:
+        details.insert(0, f"爬繩子失敗 {kinds['climb_giveup'].get('tries', 0)} 次，改走路線")
     if "edge" in kinds:
         return "edge", "平台邊緣，跳回", details
     if route:
