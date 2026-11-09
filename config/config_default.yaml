@@ -241,6 +241,10 @@ route:
   jump_runup_back_px: 4       # ↔️ minimap pixels to walk back for the run-up
   jump_runup_back_s: 0.8      # ⏱️ at most this long walking back
   jump_runup_approach_s: 1.2  # ⏱️ at most this long walking at the ledge again before jumping
+  # 🧗 Rope / ladder climb retry: the route says "up" but the character is not climbing
+  climb_stall_s: 0.5          # ⏱️ Y coordinate still for this long = climb failed
+  climb_retry_walk_s: 0.3     # ⏱️ walk toward the rope for this long before pressing up again
+  climb_retry_max: 3          # 🔁 give up after this many retries
 
   # 🎨 Color-coded(RGB) actions for route navigation
   # "<left-right command, up-down command, action>"

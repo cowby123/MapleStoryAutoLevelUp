@@ -1215,8 +1215,12 @@ class MapleStoryAutoBot:
             cr["tries"] = 0
             return
         # in retry phase: walk toward rope
+        rc = self.cfg.get("route") or {}
+        walk_s = float(rc.get("climb_retry_walk_s", 0.3))
+        max_tries = int(rc.get("climb_retry_max", 3))
+        stall_s = float(rc.get("climb_stall_s", 0.5))
         if cr["phase"] == "walk":
-            if now - cr["t"] > 0.3:
+            if now - cr["t"] > walk_s:
                 cr["phase"] = "retry"
                 cr["t"] = now
                 self.cmd_move_x = "none"
@@ -1225,7 +1229,7 @@ class MapleStoryAutoBot:
                 self.why("climb_retry", phase="retry", tries=cr["tries"])
             return
         if cr["phase"] == "retry":
-            if now - cr["t"] > 0.5:
+            if now - cr["t"] > stall_s:
                 cr["phase"] = None  # check again
             else:
                 self.cmd_move_y = "up"
@@ -1234,14 +1238,14 @@ class MapleStoryAutoBot:
         if not is_up:
             return
         hist = cr["y_hist"]
-        if len(hist) < 3 or now - hist[0][0] < 0.5:
+        if len(hist) < 3 or now - hist[0][0] < stall_s:
             return
         y_range = max(h[1] for h in hist) - min(h[1] for h in hist)
         if y_range > 1:
             return  # Y is changing, climb is working
         # climb failed
         cr["tries"] += 1
-        if cr["tries"] > 3:
+        if cr["tries"] > max_tries:
             # give up: use the "up" override
             alt = self._nearest_non_up(max(15, self.cfg["route"]["search_range"]))
             if alt is not None:

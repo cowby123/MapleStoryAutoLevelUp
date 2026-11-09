@@ -90,6 +90,9 @@ FIELDS = [
     ("attack", "aoe_count_window_s", "num", (0, 3)),
     ("attack", "aoe_count_stat", "choice", ["max", "median"]),
     ("route", "jump_runup", "bool", None),
+    ("route", "climb_stall_s", "num", (0.3, 2.0)),
+    ("route", "climb_retry_walk_s", "num", (0.1, 1.0)),
+    ("route", "climb_retry_max", "int", (1, 10)),
     ("wingpu", "profile_autodetect", "bool", None),
     # 類人保護 (src/engine/HumanPause.py)
     ("human_pause", "enable", "bool", None),

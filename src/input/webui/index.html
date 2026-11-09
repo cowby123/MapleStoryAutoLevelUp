@@ -434,6 +434,9 @@ const LABELS = {
   'human_pause.long_seconds': ['停久一點時停多久（秒）', '最少～最多；例：8～15'],
   // 安全與其他
   'route.jump_runup': ['跳不上平台時退後助跑', '路線叫你往右 / 左跳、但一直在原地跳（貼著牆、沒有速度）：先往回走幾格，再跑過去起跳'],
+  'route.climb_stall_s': ['判定爬繩子失敗的等待時間（秒）', 'Y 座標多久沒動就算爬失敗；一般 0.5'],
+  'route.climb_retry_walk_s': ['走向繩子的時間（秒）', '爬繩子失敗後，往繩子方向走多久再重試。角色移動速度快就調短；一般 0.3'],
+  'route.climb_retry_max': ['爬繩子最多重試幾次', '超過就放棄、改走路線；一般 3'],
   'route.jump_stuck_s': ['原地跳幾秒算卡住（秒）', '一般 2'],
   'route.jump_runup_back_px': ['往回走幾格', '小地圖上的格數；一般 4'],
   'edge_teleport.enable': ['平台邊緣自動跳回', '走到平台邊緣時跳回來，避免掉下去'],
@@ -511,7 +514,7 @@ const GROUPS_PROTECT = [
   ['符文 / 詛咒', ['curse.stop_while_cursed', 'curse.action', 'rune_curse.enable', 'rune_curse.seek_timeout', 'rune_curse.interact_key', 'rune_curse.interact_every_px', 'rune_curse.interact_cooldown', 'rune_curse.resume', 'rune_curse.rest_minutes', 'rune_curse.sweep_tap_s', 'rune_curse.sweep_tap_gap', 'rune_curse.sweep_px_per_tap', 'rune_curse.sweep_max_px', 'rune_curse.sweep_up_interval', 'rune_curse.sweep_away_s', 'rune_curse.sweep_timeout', 'rune_curse.minigame_wait', 'rune_curse.minigame_retries', 'rune_curse.capture_frames', 'rune_curse.capture_interval', 'rune_curse.capture_max', 'rune_curse.capture_rotate']],
   ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
   ['類人保護', ['human_pause.enable', 'human_pause.interval_minutes', 'human_pause.pause_seconds', 'human_pause.long_enable', 'human_pause.long_chance_percent', 'human_pause.long_seconds']],
-  ['偵測不到與安全', ['detection_lost.timeout', 'detection_lost.minimap_grace_s', 'edge_teleport.enable', 'watchdog.timeout', 'route.jump_runup', 'route.jump_stuck_s', 'route.jump_runup_back_px']],
+  ['偵測不到與安全', ['detection_lost.timeout', 'detection_lost.minimap_grace_s', 'edge_teleport.enable', 'watchdog.timeout', 'route.jump_runup', 'route.jump_stuck_s', 'route.jump_runup_back_px', 'route.climb_stall_s', 'route.climb_retry_walk_s', 'route.climb_retry_max']],
 ];
 const GROUPS_COMBAT = [
   ['地圖與模式', ['bot.map', 'route.files', 'bot.mode', 'bot.attack']],
