@@ -331,7 +331,7 @@ class MapleStoryAutoBot:
                         model_path,
                         conf_thres=float(cfg["monster_detect"].get("yolo_conf", 0.25)),
                         iou_thres=float(cfg["monster_detect"].get("yolo_iou", 0.45)),
-                        input_size=int(cfg["monster_detect"].get("yolo_input_size", 320)),
+                        input_size=int(cfg["monster_detect"].get("yolo_input_size", 640)),
                     )
                     self.yolo_detector.warmup()
                     logger.info(f"[YOLO] loaded {model_path}")
