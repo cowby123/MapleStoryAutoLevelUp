@@ -2923,6 +2923,8 @@ class MapleStoryAutoBot:
             return True
         # rest / wait_window / ended: hold still; potions still work (HealthMonitor)
         self.kb.is_resting = True
+        if phase == "ended":
+            self.kb.no_buffs = True
         self.kb.set_command("none none none")
         self.monsters = []
         return True

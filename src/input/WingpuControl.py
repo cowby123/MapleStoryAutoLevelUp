@@ -348,8 +348,8 @@ class WingpuControl:
             {"id": "hunt_cycle", "cn": "練功 / 休息循環", "on": bool(hc.get("enable"))},
             {"id": "safe_spot", "cn": "休息走到安全點", "on": bool(hc.get("enable")) and hc.get("rest_action") == "safe_spot"},
             {"id": "go_home_rest", "cn": "休息時回城", "on": bool(hc.get("enable")) and hc.get("rest_action") == "go_home"},
-            {"id": "session", "cn": "總時數 / 每日時段", "on": bool(hc.get("enable")) and
-             (bool(hc.get("session_hours")) or bool(hc.get("window_start")))},
+            {"id": "session", "cn": f"掛機 {hc.get('session_hours', 0)} 小時" + (" 後回城" if hc.get("session_end_action") == "go_home" else " 後停止") if hc.get("session_hours") else "每日時段",
+             "on": bool(hc.get("enable")) and (bool(hc.get("session_hours")) or bool(hc.get("window_start")))},
             {"id": "rune", "cn": "解符文", "on": g("rune_find", "enable", True)},
             {"id": "last_attack", "cn": "太久沒攻擊就" + ("換頻道" if (c.get("watchdog") or {}).get("last_attack_timeout_action") == "change_channel" else "回城"),
              "on": g("watchdog", "last_attack_enable", True)},

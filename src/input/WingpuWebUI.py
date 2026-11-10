@@ -152,6 +152,7 @@ FIELDS = [
     ("hunt_cycle", "rest_action", "choice", ["stop", "safe_spot", "go_home"]),
     ("hunt_cycle", "safe_spot_timeout", "int", (10, 1800)),
     ("hunt_cycle", "session_hours", "num", (0, 48)),
+    ("hunt_cycle", "session_end_action", "choice", ["stop", "go_home"]),
     ("hunt_cycle", "window_start", "hhmm", None),
     ("hunt_cycle", "window_end", "hhmm", None),
     # every other time setting

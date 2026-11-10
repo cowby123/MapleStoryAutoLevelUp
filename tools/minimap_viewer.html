@@ -1,0 +1,308 @@
+<title>Ston 地圖結構</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Minimap structure viewer — dark game-map aesthetic */
+  :root {
+    --bg: #1a1a2e; --bg2: #16213e; --fg: #e0e0e0; --fg2: #8a8a9a;
+    --platform: #22c55e; --rope: #38bdf8; --player: #facc15;
+    --accent: #a78bfa; --danger: #ef4444;
+    --font: 'JetBrains Mono', 'Fira Code', monospace;
+    --font-ui: system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #0f0f1a; --bg2: #1a1a2e; --fg: #e8e8f0; --fg2: #7a7a8e;
+    color-scheme: dark;
+  }}
+  :root[data-theme="dark"] {
+    --bg: #0f0f1a; --bg2: #1a1a2e; --fg: #e8e8f0; --fg2: #7a7a8e;
+    color-scheme: dark;
+  }
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--font-ui);
+    margin: 0; padding-block: 16px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex; flex-direction: column; align-items: center; gap: 20px;
+    min-height: 100vh;
+  }
+  h1 { font-family: var(--font); font-size: 1.3rem; font-weight: 600; margin: 0; letter-spacing: 0.5px; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--fg2); font-size: 0.82rem; margin: 0; }
+  .canvas-wrap {
+    position: relative; background: var(--bg2); border-radius: 12px;
+    padding: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    max-width: 100%; overflow: hidden;
+  }
+  canvas { display: block; image-rendering: pixelated; max-width: 100%; height: auto; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.8rem;
+    font-family: var(--font); padding: 8px 0;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 12px; height: 4px; border-radius: 2px; }
+  .legend-line { width: 12px; height: 12px; border-left: 3px dashed; }
+  .legend-circle { width: 10px; height: 10px; border-radius: 50%; }
+  .info-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px; width: 100%; max-width: 600px;
+  }
+  .info-card {
+    background: var(--bg2); border-radius: 8px; padding: 10px 12px;
+    border-left: 3px solid var(--platform);
+  }
+  .info-card.rope { border-left-color: var(--rope); }
+  .info-card h3 { margin: 0 0 4px; font-size: 0.85rem; font-family: var(--font); }
+  .info-card p { margin: 0; font-size: 0.75rem; color: var(--fg2); font-variant-numeric: tabular-nums; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+  .controls label {
+    display: flex; align-items: center; gap: 6px; font-size: 0.8rem;
+    font-family: var(--font); cursor: pointer; user-select: none;
+    background: var(--bg2); padding: 6px 12px; border-radius: 6px;
+  }
+  .controls input[type=checkbox] { accent-color: var(--accent); }
+  .hover-info {
+    position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.75);
+    color: var(--fg); font-family: var(--font); font-size: 0.72rem;
+    padding: 4px 8px; border-radius: 4px; pointer-events: none;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+
+<h1><span>STON</span> 地圖結構分析</h1>
+<p class="sub">石巨人森林 — 自動軌跡辨識 · 300 幀 · 5 平台 · 3 繩索</p>
+
+<div class="controls">
+  <label><input type="checkbox" id="cb-plat" checked> 平台</label>
+  <label><input type="checkbox" id="cb-rope" checked> 繩索</label>
+  <label><input type="checkbox" id="cb-trail" checked> 軌跡</label>
+  <label><input type="checkbox" id="cb-labels" checked> 標籤</label>
+  <label><input type="checkbox" id="cb-bg" checked> 背景圖</label>
+</div>
+
+<div class="canvas-wrap">
+  <canvas id="cv" width="561" height="573"></canvas>
+  <div class="hover-info" id="hover">x: — y: —</div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--platform)"></div> 平台</div>
+  <div class="legend-item"><div class="legend-line" style="border-color:var(--rope)"></div> 繩索</div>
+  <div class="legend-item"><div class="legend-circle" style="background:var(--player)"></div> 玩家軌跡</div>
+  <div class="legend-item"><div class="legend-circle" style="background:var(--accent);opacity:0.5"></div> 傳送門</div>
+</div>
+
+<div class="info-grid">
+  <div class="info-card"><h3>P1 頂層</h3><p>y=77 · x: 68 → 116<br>寬度 48 px</p></div>
+  <div class="info-card"><h3>P2 上層</h3><p>y=106 · x: 55 → 134<br>寬度 79 px</p></div>
+  <div class="info-card"><h3>P3 中層</h3><p>y=131 · x: 31 → 156<br>寬度 125 px</p></div>
+  <div class="info-card"><h3>P4 中下</h3><p>y=158 · x: 115 → 135<br>寬度 20 px</p></div>
+  <div class="info-card"><h3>P5 下層</h3><p>y=165 · x: 74 → 179<br>寬度 105 px</p></div>
+  <div class="info-card rope"><h3>R1 左繩</h3><p>x=76 · 頂層 ↔ 中層<br>長度 54 px</p></div>
+  <div class="info-card rope"><h3>R2 中繩</h3><p>x=106 · 頂層 ↔ 下層<br>長度 88 px</p></div>
+  <div class="info-card rope"><h3>R3 右繩</h3><p>x=127 · 上層 ↔ 下層<br>長度 59 px</p></div>
+</div>
+
+<script>
+const S = 3; // scale factor
+const MAP_W = 187, MAP_H = 191;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+const platforms = [
+  {y:77, x0:68, x1:116, label:'P1 頂層'},
+  {y:106, x0:55, x1:134, label:'P2 上層'},
+  {y:131, x0:31, x1:156, label:'P3 中層'},
+  {y:158, x0:115, x1:135, label:'P4 中下'},
+  {y:165, x0:74, x1:179, label:'P5 下層'},
+];
+const ropes = [
+  {x:76, yt:77, yb:131, label:'R1'},
+  {x:106, yt:77, yb:165, label:'R2'},
+  {x:127, yt:106, yb:165, label:'R3'},
+];
+const trail = [[74,165],[74,165],[74,165],[74,165],[77,165],[77,164],[86,165],[95,165],[105,165],[114,165],[123,165],[130,165],[130,165],[134,165],[134,165],[138,165],[138,165],[138,165],[141,165],[141,164],[141,164],[141,164],[141,164],[141,164],[141,164],[149,165],[158,165],[167,165],[176,165],[179,165],[171,165],[162,165],[158,165],[164,165],[162,165],[162,165],[162,165],[158,165],[158,165],[156,165],[156,165],[156,165],[156,165],[156,165],[156,165],[153,165],[153,165],[153,165],[153,165],[153,165],[153,165],[153,165],[153,165],[153,165],[153,165],[151,165],[149,164],[141,164],[131,160],[123,165],[123,165],[126,157],[129,165],[123,160],[125,157],[127,159],[122,160],[129,161],[124,159],[124,157],[127,162],[120,164],[120,165],[120,165],[120,165],[117,165],[115,159],[121,165],[130,159],[131,159],[121,165],[126,159],[135,158],[135,157],[127,158],[121,165],[128,162],[135,162],[132,158],[125,158],[122,162],[129,157],[129,152],[129,147],[129,141],[129,136],[128,131],[122,131],[122,131],[119,131],[118,131],[117,131],[116,131],[116,131],[116,131],[116,131],[116,131],[108,127],[110,131],[110,131],[110,131],[110,131],[110,131],[110,131],[107,131],[107,131],[99,131],[96,131],[94,131],[85,131],[84,131],[75,131],[66,131],[57,131],[55,131],[47,131],[43,131],[41,119],[31,131],[34,131],[34,131],[36,131],[37,131],[37,131],[37,131],[37,131],[46,131],[55,131],[64,131],[74,131],[83,131],[92,131],[101,131],[110,131],[119,131],[128,131],[137,131],[147,131],[156,131],[152,131],[143,131],[134,131],[125,131],[116,131],[107,126],[99,131],[106,128],[111,131],[106,127],[104,131],[104,131],[104,131],[108,131],[109,131],[104,124],[98,131],[98,131],[101,131],[101,131],[101,131],[101,131],[101,131],[97,131],[104,131],[108,126],[108,131],[108,131],[108,131],[100,136],[111,131],[109,131],[109,131],[109,131],[111,131],[120,131],[112,131],[103,126],[95,131],[101,125],[108,125],[112,127],[104,131],[101,124],[95,130],[102,130],[108,123],[111,130],[104,130],[103,131],[103,131],[111,131],[111,131],[108,123],[105,122],[105,117],[105,111],[105,106],[105,106],[101,106],[102,106],[98,106],[97,106],[89,106],[89,106],[86,106],[86,106],[90,106],[90,106],[90,106],[87,105],[83,106],[77,106],[76,106],[76,106],[76,106],[75,105],[75,105],[75,105],[75,105],[75,105],[73,106],[73,106],[73,106],[69,106],[66,105],[66,105],[66,105],[65,106],[65,106],[57,106],[55,106],[64,106],[73,106],[82,105],[85,105],[86,106],[86,106],[86,106],[86,106],[95,106],[104,106],[113,106],[122,106],[131,106],[134,106],[125,105],[116,105],[107,106],[98,106],[89,106],[79,105],[70,106],[75,101],[76,96],[76,90],[75,85],[76,80],[74,77],[74,77],[75,77],[69,77],[68,77],[69,77],[69,77],[70,77],[70,77],[70,77],[72,77],[73,77],[73,77],[73,77],[73,77],[78,77],[83,77],[83,77],[91,77],[99,77],[100,77],[105,77],[114,77],[116,77],[112,77],[113,77],[113,77],[112,77],[112,77],[112,77],[109,77],[108,77],[104,77]];
+
+// portal approximate position (top of map, cyan icon in minimap)
+const portal = {x: 93, y: 60};
+
+let bgImg = null;
+
+function loadBg() {
+  // Draw a dark approximation of the minimap background
+  const c2 = document.createElement('canvas');
+  c2.width = MAP_W; c2.height = MAP_H;
+  const x2 = c2.getContext('2d');
+  // Dark forest gradient
+  const g = x2.createLinearGradient(0,0,0,MAP_H);
+  g.addColorStop(0, '#0a0f0a');
+  g.addColorStop(0.4, '#0d120d');
+  g.addColorStop(1, '#111a11');
+  x2.fillStyle = g;
+  x2.fillRect(0,0,MAP_W,MAP_H);
+  // Rough platform shapes
+  x2.fillStyle = '#1a2a1a';
+  platforms.forEach(p => {
+    x2.fillRect(p.x0, p.y-4, p.x1-p.x0, 8);
+  });
+  bgImg = c2;
+}
+
+function draw() {
+  const showPlat = document.getElementById('cb-plat').checked;
+  const showRope = document.getElementById('cb-rope').checked;
+  const showTrail = document.getElementById('cb-trail').checked;
+  const showLabels = document.getElementById('cb-labels').checked;
+  const showBg = document.getElementById('cb-bg').checked;
+
+  ctx.clearRect(0, 0, cv.width, cv.height);
+
+  // Background
+  if (showBg && bgImg) {
+    ctx.drawImage(bgImg, 0, 0, MAP_W * S, MAP_H * S);
+    ctx.fillStyle = 'rgba(10,15,30,0.5)';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+  } else {
+    ctx.fillStyle = '#0f0f1a';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+  }
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < MAP_W; x += 20) {
+    ctx.beginPath(); ctx.moveTo(x*S, 0); ctx.lineTo(x*S, MAP_H*S); ctx.stroke();
+  }
+  for (let y = 0; y < MAP_H; y += 20) {
+    ctx.beginPath(); ctx.moveTo(0, y*S); ctx.lineTo(MAP_W*S, y*S); ctx.stroke();
+  }
+
+  // Trail
+  if (showTrail) {
+    // Trail line
+    ctx.strokeStyle = 'rgba(250,204,21,0.15)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    trail.forEach(([x,y], i) => {
+      if (i === 0) ctx.moveTo(x*S, y*S);
+      else ctx.lineTo(x*S, y*S);
+    });
+    ctx.stroke();
+    // Trail dots
+    trail.forEach(([x,y], i) => {
+      const t = i / trail.length;
+      ctx.fillStyle = `rgba(250,204,21,${0.15 + t * 0.6})`;
+      ctx.beginPath();
+      ctx.arc(x*S, y*S, 2.5, 0, Math.PI*2);
+      ctx.fill();
+    });
+  }
+
+  // Platforms
+  if (showPlat) {
+    platforms.forEach(p => {
+      // Glow
+      ctx.shadowColor = '#22c55e';
+      ctx.shadowBlur = 8;
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(p.x0*S, p.y*S);
+      ctx.lineTo(p.x1*S, p.y*S);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // End caps
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath(); ctx.arc(p.x0*S, p.y*S, 4, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x1*S, p.y*S, 4, 0, Math.PI*2); ctx.fill();
+
+      // Label
+      if (showLabels) {
+        ctx.font = `bold ${11}px JetBrains Mono, monospace`;
+        ctx.fillStyle = '#22c55e';
+        ctx.textAlign = 'left';
+        ctx.fillText(p.label, p.x0*S, p.y*S - 8);
+        ctx.font = `${9}px JetBrains Mono, monospace`;
+        ctx.fillStyle = 'rgba(34,197,94,0.6)';
+        ctx.fillText(`y=${p.y}  x: ${p.x0}→${p.x1}`, p.x0*S, p.y*S - 20);
+      }
+    });
+  }
+
+  // Ropes
+  if (showRope) {
+    ropes.forEach(r => {
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 6;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(r.x*S, r.yt*S);
+      ctx.lineTo(r.x*S, r.yb*S);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.shadowBlur = 0;
+
+      // Endpoints
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath(); ctx.arc(r.x*S, r.yt*S, 3, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(r.x*S, r.yb*S, 3, 0, Math.PI*2); ctx.fill();
+
+      if (showLabels) {
+        ctx.font = `bold ${10}px JetBrains Mono, monospace`;
+        ctx.fillStyle = '#38bdf8';
+        ctx.textAlign = 'left';
+        const my = (r.yt + r.yb) / 2;
+        ctx.fillText(r.label, r.x*S + 6, my*S);
+        ctx.font = `${8}px JetBrains Mono, monospace`;
+        ctx.fillStyle = 'rgba(56,189,248,0.6)';
+        ctx.fillText(`x=${r.x}`, r.x*S + 6, my*S + 12);
+      }
+    });
+  }
+
+  // Portal
+  ctx.fillStyle = 'rgba(167,139,250,0.4)';
+  ctx.beginPath(); ctx.arc(portal.x*S, portal.y*S, 8, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#a78bfa';
+  ctx.beginPath(); ctx.arc(portal.x*S, portal.y*S, 4, 0, Math.PI*2); ctx.fill();
+  if (showLabels) {
+    ctx.font = `bold ${9}px JetBrains Mono, monospace`;
+    ctx.fillStyle = '#a78bfa';
+    ctx.textAlign = 'center';
+    ctx.fillText('Portal', portal.x*S, portal.y*S - 12);
+  }
+
+  // Border
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, cv.width, cv.height);
+}
+
+loadBg();
+draw();
+document.querySelectorAll('.controls input').forEach(el => el.addEventListener('change', draw));
+
+// Hover coordinate
+cv.addEventListener('mousemove', e => {
+  const rect = cv.getBoundingClientRect();
+  const scaleX = cv.width / rect.width;
+  const scaleY = cv.height / rect.height;
+  const mx = Math.round((e.clientX - rect.left) * scaleX / S);
+  const my = Math.round((e.clientY - rect.top) * scaleY / S);
+  const hover = document.getElementById('hover');
+  let info = `x: ${mx}  y: ${my}`;
+  // Check proximity to platform
+  platforms.forEach(p => {
+    if (Math.abs(my - p.y) <= 2 && mx >= p.x0 && mx <= p.x1) info += ` · ${p.label}`;
+  });
+  ropes.forEach(r => {
+    if (Math.abs(mx - r.x) <= 2 && my >= r.yt && my <= r.yb) info += ` · ${r.label}`;
+  });
+  hover.textContent = info;
+});
+cv.addEventListener('mouseleave', () => {
+  document.getElementById('hover').textContent = 'x: —  y: —';
+});
+</script>

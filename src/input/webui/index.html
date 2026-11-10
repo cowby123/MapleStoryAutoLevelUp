@@ -205,8 +205,24 @@ section h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     <table id="buffst"></table>
   </section>
 
+  <section class="wide" id="sec-minimap">
+    <h2>即時地圖 <button id="mm-clear" style="font-size:0.7rem;padding:2px 8px;margin-left:8px;background:#ef4444;color:#fff;border:none;border-radius:4px;cursor:pointer">清除</button></h2>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px;font-size:0.75rem;color:#8a8a9a;font-family:monospace">
+      <span>座標: <b id="mm-pos">—</b></span>
+      <span>軌跡: <b id="mm-trail-n">0</b></span>
+      <span>平台: <b id="mm-plat-n">0</b></span>
+      <span>繩索: <b id="mm-rope-n">0</b></span>
+    </div>
+    <div style="position:relative;background:#16213e;border-radius:8px;padding:8px;display:inline-block">
+      <canvas id="mm-cv" style="display:block;image-rendering:pixelated;max-width:100%;height:auto"></canvas>
+      <div id="mm-hover" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,.75);font-family:monospace;font-size:0.65rem;padding:2px 6px;border-radius:3px;pointer-events:none">x: — y: —</div>
+    </div>
+    <div id="mm-info" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:4px;margin-top:6px;font-size:0.7rem;font-family:monospace"></div>
+  </section>
+
   <section class="wide" id="sec-cycle">
     <h2>練功 / 休息循環</h2>
+    <div id="session-countdown" style="display:none;text-align:center;padding:10px 0 6px;font-size:28px;font-weight:bold;letter-spacing:1px"><span id="session-cd-label" style="font-size:13px;font-weight:normal;display:block;margin-bottom:2px;color:#888">自動回城倒數</span><span id="session-cd-time">--:--:--</span></div>
     <div id="cycle-box" style="height:250px;overflow:auto"><table id="cyclest" class="cycle"></table></div>
   </section>
 </main>
@@ -423,7 +439,8 @@ const LABELS = {
   'hunt_cycle.rest_minutes': ['每輪休息（分鐘）', '最少～最多，每輪隨機；例：5～15'],
   'hunt_cycle.rest_action': ['休息方式', '原地停手（還會喝水）；走到安全點再停；回城後結束這次'],
   'hunt_cycle.safe_spot_timeout': ['走到安全點最多幾秒', '超過就原地休息；一般 120'],
-  'hunt_cycle.session_hours': ['總共玩幾小時後結束', '0 = 不限'],
+  'hunt_cycle.session_hours': ['總共掛幾小時', '0 = 不限；時間到依下面的動作處理'],
+  'hunt_cycle.session_end_action': ['時間到了做什麼', '原地停手或按回城卷後結束'],
   'hunt_cycle.window_start': ['每天開始時間', '時:分，空白 = 不限'],
   'hunt_cycle.window_end': ['每天結束時間', '時:分，可跨午夜，例：22:00～02:00'],
   // 類人保護
@@ -505,6 +522,7 @@ const CHOICE_CN = {
   'monster_detect.mode': {color: '彩色比對', contour_only: '輪廓', grayscale: '灰階', template_free: '不用模板', yolo: 'YOLO (AI)'},
   'monster_detect.search': {roi: '角色周圍的框', full: '整個畫面', attack: '攻擊範圍再外擴'},
   'hunt_cycle.rest_action': {stop: '原地停手', safe_spot: '走到安全點', go_home: '回城後結束'},
+  'hunt_cycle.session_end_action': {stop: '原地停手', go_home: '回城後結束'},
   'curse.action': {stop: '原地停手', safe_spot: '走到安全點'},
   'rune_curse.resume': {curse_gone: '等詛咒解除', rest_time: '休息一段時間'},
   'watchdog.last_attack_timeout_action': {change_channel: '換頻道', go_home: '回城並停止'},
@@ -513,7 +531,7 @@ const GROUPS_PROTECT = [
   ['喝水', ['health_monitor.enable', 'health_monitor.add_hp_percent', 'health_monitor.add_mp_percent', 'health_monitor.add_hp_cooldown', 'health_monitor.add_mp_cooldown', 'health_monitor.fps_limit', 'health_monitor.force_heal', 'health_monitor.return_home_if_no_potion', 'health_monitor.return_home_watch_dog_timeout']],
   ['怪物圖鑑', ['book_dismiss.enable', 'book_dismiss.force_in_dry_run']],
   ['符文 / 詛咒', ['curse.stop_while_cursed', 'curse.action', 'rune_curse.enable', 'rune_curse.seek_timeout', 'rune_curse.interact_key', 'rune_curse.interact_every_px', 'rune_curse.interact_cooldown', 'rune_curse.resume', 'rune_curse.rest_minutes', 'rune_curse.sweep_tap_s', 'rune_curse.sweep_tap_gap', 'rune_curse.sweep_px_per_tap', 'rune_curse.sweep_max_px', 'rune_curse.sweep_up_interval', 'rune_curse.sweep_away_s', 'rune_curse.sweep_timeout', 'rune_curse.minigame_wait', 'rune_curse.minigame_retries', 'rune_curse.capture_frames', 'rune_curse.capture_interval', 'rune_curse.capture_max', 'rune_curse.capture_rotate']],
-  ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
+  ['練功 / 休息循環', ['hunt_cycle.enable', 'hunt_cycle.hunt_minutes', 'hunt_cycle.rest_minutes', 'hunt_cycle.rest_action', 'hunt_cycle.safe_spot_timeout', 'hunt_cycle.session_hours', 'hunt_cycle.session_end_action', 'hunt_cycle.window_start', 'hunt_cycle.window_end']],
   ['類人保護', ['human_pause.enable', 'human_pause.interval_minutes', 'human_pause.pause_seconds', 'human_pause.long_enable', 'human_pause.long_chance_percent', 'human_pause.long_seconds']],
   ['偵測不到與安全', ['detection_lost.timeout', 'detection_lost.minimap_grace_s', 'edge_teleport.enable', 'watchdog.timeout', 'route.jump_runup', 'route.jump_stuck_s', 'route.jump_runup_back_px', 'route.climb_stall_s', 'route.climb_retry_walk_s', 'route.climb_retry_max']],
 ];
@@ -540,6 +558,7 @@ const DEPS = {
   'hunt_cycle.rest_action': v => v['hunt_cycle.enable'],
   'hunt_cycle.safe_spot_timeout': v => v['hunt_cycle.enable'] && v['hunt_cycle.rest_action'] === 'safe_spot',
   'hunt_cycle.session_hours': v => v['hunt_cycle.enable'],
+  'hunt_cycle.session_end_action': v => v['hunt_cycle.enable'] && v['hunt_cycle.session_hours'],
   'hunt_cycle.window_start': v => v['hunt_cycle.enable'],
   'hunt_cycle.window_end': v => v['hunt_cycle.enable'],
   'player_detect.nametag_thres': v => v['player_detect.mode'] !== 'party_bar',
@@ -718,8 +737,28 @@ async function poll() {
   const hc = s.hunt_cycle;
   if (hc && hc.enabled) {
     vis('b-cycle', false);
-    $('b-cycle').textContent = `${hc.phase_cn}` + (hc.remaining_s !== null ? ` 剩 ${fmtS(hc.remaining_s)}` : '');
+    const cdText = hc.session_left_s !== null ? ` (${fmtS(hc.session_left_s)})` : '';
+    $('b-cycle').textContent = `${hc.phase_cn}` + (hc.remaining_s !== null ? ` 剩 ${fmtS(hc.remaining_s)}` : '') + cdText;
     $('b-cycle').className = 'badge ' + (hc.phase === 'hunt' ? 'b-ok' : hc.phase === 'ended' ? 'b-bad' : 'b-warn');
+    // session countdown
+    const cdEl = $('session-countdown');
+    if (hc.session_left_s !== null && hc.phase !== 'ended') {
+      cdEl.style.display = '';
+      const sl = Math.max(0, Math.round(hc.session_left_s));
+      const hh = String(Math.floor(sl / 3600)).padStart(2, '0');
+      const mm = String(Math.floor(sl % 3600 / 60)).padStart(2, '0');
+      const ss = String(sl % 60).padStart(2, '0');
+      $('session-cd-time').textContent = `${hh}:${mm}:${ss}`;
+      $('session-cd-time').style.color = sl < 300 ? '#dc2626' : sl < 900 ? '#ca8a04' : '';
+      $('session-cd-label').textContent = hc.session_end_action === 'go_home' ? '自動回城倒數' : '掛機剩餘時間';
+    } else if (hc.phase === 'ended') {
+      cdEl.style.display = '';
+      $('session-cd-time').textContent = '已結束';
+      $('session-cd-time').style.color = '#dc2626';
+      $('session-cd-label').textContent = hc.ended_why || '已結束';
+    } else {
+      cdEl.style.display = 'none';
+    }
     const pl = hc.plan || {};
     $('cyclest').innerHTML = [
       ['階段', `<b>${esc(hc.phase_cn)}</b>` + (hc.phase === 'ended' ? `（${esc(hc.ended_why)}；要再開始請按「重新啟動」）` : '')],
@@ -735,6 +774,7 @@ async function poll() {
     $('cyclest').innerHTML = '<tr><td class="msg">沒有啟用（在下面「設定 → 練功 / 休息循環」打開）</td><td></td></tr>';
   }
   if (s.minimap && !$('sec-rp').hidden) { RP.player = s.minimap.player_global; rpDraw(); }
+  if (s.minimap && s.minimap.found) mmUpdate(s.minimap);
   const bs = s.buffs || [];
   $('buff-note').textContent = LIVE ? '' : '（模擬：「放」= 會放，沒有送出）';
   $('buffst').innerHTML = bs.length ? '<tr><td>增益技能</td><td>下次 / 上次</td></tr>' + bs.map(b =>
@@ -1208,6 +1248,131 @@ setInterval(poll, 1000);
 // MJPEG response would otherwise keep the page 'loading' forever)
 $('live').src = './debug.jpg?t=' + Date.now();
 window.addEventListener('load', () => setTimeout(startImage, 300));
+
+// ========== Minimap live tracker ==========
+const MM = {
+  S: 3, w: 180, h: 180,
+  trail: [], platforms: [], ropes: [], lastPos: null,
+  cv: null, ctx: null,
+};
+
+(function initMM() {
+  MM.cv = $('mm-cv');
+  MM.ctx = MM.cv.getContext('2d');
+  $('mm-clear').onclick = () => { MM.trail=[]; MM.platforms=[]; MM.ropes=[]; mmDraw(); mmInfo(); };
+  MM.cv.addEventListener('mousemove', e => {
+    const r = MM.cv.getBoundingClientRect();
+    const mx = Math.round((e.clientX-r.left)*(MM.cv.width/r.width)/MM.S);
+    const my = Math.round((e.clientY-r.top)*(MM.cv.height/r.height)/MM.S);
+    let t = `x:${mx} y:${my}`;
+    MM.platforms.forEach(p => { if (Math.abs(my-p.y)<=2 && mx>=p.x0 && mx<=p.x1) t += ` · ${p.label}`; });
+    MM.ropes.forEach(r => { if (Math.abs(mx-r.x)<=2 && my>=r.yt && my<=r.yb) t += ` · ${r.label}`; });
+    $('mm-hover').textContent = t;
+  });
+  mmDraw();
+})();
+
+function mmUpdate(mm) {
+  if (mm.size_wh && (mm.size_wh[0] !== MM.w || mm.size_wh[1] !== MM.h)) {
+    MM.w = mm.size_wh[0]; MM.h = mm.size_wh[1];
+  }
+  MM.cv.width = MM.w * MM.S; MM.cv.height = MM.h * MM.S;
+  const pos = mm.player_on_minimap;
+  if (!pos) return;
+  MM.lastPos = {x: pos[0], y: pos[1]};
+  $('mm-pos').textContent = `${pos[0]}, ${pos[1]}`;
+  const last = MM.trail[MM.trail.length-1];
+  if (!last || last[0]!==pos[0] || last[1]!==pos[1]) {
+    MM.trail.push([pos[0], pos[1]]);
+    $('mm-trail-n').textContent = MM.trail.length;
+    if (MM.trail.length % 15 === 0) mmAnalyze();
+  }
+  mmDraw();
+}
+
+function mmAnalyze() {
+  const t = MM.trail;
+  if (t.length < 10) return;
+  const py = {}, rx = {}, ropeYs = [];
+  for (let i=1; i<t.length; i++) {
+    const dx=Math.abs(t[i][0]-t[i-1][0]), dy=Math.abs(t[i][1]-t[i-1][1]);
+    if (dy<=1 && dx>=1) { py[t[i-1][1]]=(py[t[i-1][1]]||0)+1; py[t[i][1]]=(py[t[i][1]]||0)+1; }
+    if (dx<=2 && dy>=2) { rx[t[i-1][0]]=(rx[t[i-1][0]]||0)+1; rx[t[i][0]]=(rx[t[i][0]]||0)+1; ropeYs.push([t[i-1][0],t[i-1][1]]); ropeYs.push([t[i][0],t[i][1]]); }
+  }
+  // Cluster Y
+  const yv = Object.entries(py).filter(([_,c])=>c>=3).map(([y,c])=>[+y,c]).sort((a,b)=>a[0]-b[0]);
+  const yg = [];
+  for (const [y,c] of yv) { const l=yg[yg.length-1]; if(l && y-l[l.length-1][0]<=4) l.push([y,c]); else yg.push([[y,c]]); }
+  MM.platforms = yg.map((g,i) => {
+    const ym = Math.round(g.reduce((s,[y])=>s+y,0)/g.length);
+    const ys = new Set(g.map(([y])=>y));
+    const xs = t.filter(p=>ys.has(p[1])).map(p=>p[0]);
+    return {y:ym, x0:xs.length?Math.min(...xs):0, x1:xs.length?Math.max(...xs):MM.w, label:`P${i+1}`, n:g.reduce((s,[_,c])=>s+c,0)};
+  });
+  // Cluster X
+  const xv = Object.entries(rx).filter(([_,c])=>c>=2).map(([x,c])=>[+x,c]).sort((a,b)=>a[0]-b[0]);
+  const xg = [];
+  for (const [x,c] of xv) { const l=xg[xg.length-1]; if(l && x-l[l.length-1][0]<=4) l.push([x,c]); else xg.push([[x,c]]); }
+  MM.ropes = xg.map((g,i) => {
+    const xm = Math.round(g.reduce((s,[x])=>s+x,0)/g.length);
+    const xs = new Set(g.map(([x])=>x));
+    const ys = ropeYs.filter(p=>xs.has(p[0])).map(p=>p[1]);
+    return {x:xm, yt:ys.length?Math.min(...ys):0, yb:ys.length?Math.max(...ys):MM.h, label:`R${i+1}`};
+  });
+  $('mm-plat-n').textContent = MM.platforms.length;
+  $('mm-rope-n').textContent = MM.ropes.length;
+  mmInfo();
+}
+
+function mmInfo() {
+  let h = '';
+  MM.platforms.forEach(p => { h += `<div style="background:#16213e;border-left:3px solid #22c55e;border-radius:4px;padding:3px 6px"><b>${p.label}</b> y=${p.y} x:${p.x0}→${p.x1} (${p.n})</div>`; });
+  MM.ropes.forEach(r => { h += `<div style="background:#16213e;border-left:3px solid #38bdf8;border-radius:4px;padding:3px 6px"><b>${r.label}</b> x=${r.x} y:${r.yt}→${r.yb}</div>`; });
+  $('mm-info').innerHTML = h;
+}
+
+function mmDraw() {
+  const c = MM.ctx, S = MM.S;
+  if (!c) return;
+  c.fillStyle = '#0f0f1a';
+  c.fillRect(0, 0, MM.cv.width, MM.cv.height);
+  // grid
+  c.strokeStyle = 'rgba(255,255,255,0.04)'; c.lineWidth = 1;
+  for (let x=0; x<MM.w; x+=20) { c.beginPath(); c.moveTo(x*S,0); c.lineTo(x*S,MM.h*S); c.stroke(); }
+  for (let y=0; y<MM.h; y+=20) { c.beginPath(); c.moveTo(0,y*S); c.lineTo(MM.w*S,y*S); c.stroke(); }
+  // trail
+  if (MM.trail.length > 1) {
+    c.strokeStyle = 'rgba(250,204,21,0.1)'; c.lineWidth = 1; c.beginPath();
+    MM.trail.forEach(([x,y],i) => { if(i===0) c.moveTo(x*S,y*S); else c.lineTo(x*S,y*S); }); c.stroke();
+    const s0 = Math.max(0, MM.trail.length-60);
+    for (let i=s0; i<MM.trail.length; i++) {
+      c.fillStyle = `rgba(250,204,21,${0.08+(i-s0)/60*0.5})`;
+      c.beginPath(); c.arc(MM.trail[i][0]*S, MM.trail[i][1]*S, 2, 0, Math.PI*2); c.fill();
+    }
+  }
+  // platforms
+  MM.platforms.forEach(p => {
+    c.shadowColor='#22c55e'; c.shadowBlur=5; c.strokeStyle='#22c55e'; c.lineWidth=2.5;
+    c.beginPath(); c.moveTo(p.x0*S,p.y*S); c.lineTo(p.x1*S,p.y*S); c.stroke(); c.shadowBlur=0;
+    c.fillStyle='#22c55e';
+    c.beginPath(); c.arc(p.x0*S,p.y*S,3,0,Math.PI*2); c.fill();
+    c.beginPath(); c.arc(p.x1*S,p.y*S,3,0,Math.PI*2); c.fill();
+    c.font='bold 9px monospace'; c.fillStyle='#22c55e'; c.textAlign='left';
+    c.fillText(`${p.label} y=${p.y}`, p.x0*S, p.y*S-5);
+  });
+  // ropes
+  MM.ropes.forEach(r => {
+    c.shadowColor='#38bdf8'; c.shadowBlur=4; c.setLineDash([4,3]); c.strokeStyle='#38bdf8'; c.lineWidth=1.5;
+    c.beginPath(); c.moveTo(r.x*S,r.yt*S); c.lineTo(r.x*S,r.yb*S); c.stroke(); c.setLineDash([]); c.shadowBlur=0;
+    c.font='bold 8px monospace'; c.fillStyle='#38bdf8'; c.textAlign='left';
+    c.fillText(r.label, r.x*S+3, (r.yt+r.yb)/2*S);
+  });
+  // player
+  if (MM.lastPos) {
+    c.shadowColor='#facc15'; c.shadowBlur=10; c.fillStyle='#facc15';
+    c.beginPath(); c.arc(MM.lastPos.x*S, MM.lastPos.y*S, 4.5, 0, Math.PI*2); c.fill(); c.shadowBlur=0;
+  }
+}
 </script>
 </body>
 </html>

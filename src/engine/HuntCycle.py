@@ -100,6 +100,9 @@ class HuntCycle:
             self.rest_action = "stop"
         self.safe_timeout = float(c.get("safe_spot_timeout", 120))
         self.session_s = float(c.get("session_hours", 0) or 0) * 3600
+        self.session_end_action = c.get("session_end_action", "stop")
+        if self.session_end_action not in ("stop", "go_home"):
+            self.session_end_action = "stop"
         self.win_start = _hhmm(c.get("window_start"))
         self.win_end = _hhmm(c.get("window_end"))
 
@@ -181,6 +184,9 @@ class HuntCycle:
         now = self.clock()
         if self.session_s > 0 and now - self.t_start >= self.session_s:
             self.ended_why = f"已玩 {self.session_s / 3600:g} 小時"
+            if self.session_end_action == "go_home":
+                self.go_home_pending = True
+                self.ended_why += "，回城"
             self._enter("ended", self.ended_why)
             return self.phase
         if not self._window_open():
@@ -230,6 +236,7 @@ class HuntCycle:
             "remaining_s": round(self.t_end - now, 1) if self.t_end else None,
             "cycle": self.cycle,
             "rest_action": self.rest_action,
+            "session_end_action": self.session_end_action,
             "session_elapsed_s": round(now - self.t_start),
             "session_left_s": round(self.session_s - (now - self.t_start)) if self.session_s > 0 else None,
             "window": [self.win_start, self.win_end],
