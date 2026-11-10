@@ -653,6 +653,24 @@ class WingpuControl:
                 elif path == "/api/nametag/delete":
                     self._json(control.webui.nametag_delete())
                     return
+                elif path == "/api/session_time":
+                    secs = body.get("seconds")
+                    if secs is None or not isinstance(secs, (int, float)) or secs < 0:
+                        self._json({"ok": False, "error": "need seconds >= 0"}, 400)
+                        return
+                    hc = control.bot.hunt_cycle
+                    if not hc.enabled or hc.session_s <= 0:
+                        self._json({"ok": False, "error": "session timer not enabled"}, 400)
+                        return
+                    now = hc.clock()
+                    hc.t_start = now - (hc.session_s - float(secs))
+                    if hc.phase == "ended":
+                        hc.ended_why = ""
+                        hc.go_home_pending = False
+                        hc._enter("hunt", "倒數重設")
+                    hc.events = (hc.events + [(now, f"倒數設為 {int(secs)} 秒")])[-20:]
+                    self._json({"ok": True, "session_left_s": round(hc.session_s - (now - hc.t_start))})
+                    return
                 else:
                     self._send(404, "text/plain", b"POST run, pause, quit, restart, api/config, api/live")
                     return

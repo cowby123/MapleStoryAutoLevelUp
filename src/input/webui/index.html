@@ -222,7 +222,15 @@ section h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
   <section class="wide" id="sec-cycle">
     <h2>練功 / 休息循環</h2>
-    <div id="session-countdown" style="display:none;text-align:center;padding:10px 0 6px;font-size:28px;font-weight:bold;letter-spacing:1px"><span id="session-cd-label" style="font-size:13px;font-weight:normal;display:block;margin-bottom:2px;color:#888">自動回城倒數</span><span id="session-cd-time">--:--:--</span></div>
+    <div id="session-countdown" style="display:none;text-align:center;padding:10px 0 6px;font-size:28px;font-weight:bold;letter-spacing:1px">
+      <span id="session-cd-label" style="font-size:13px;font-weight:normal;display:block;margin-bottom:2px;color:#888">自動回城倒數</span>
+      <span id="session-cd-time" style="cursor:pointer" title="點擊修改倒數時間">--:--:--</span>
+      <div id="session-cd-edit" style="display:none;margin-top:4px">
+        <input id="session-cd-input" type="text" placeholder="時:分:秒" style="font-size:20px;width:100px;text-align:center;background:#1a1a2e;color:#fff;border:1px solid #555;border-radius:4px;padding:2px 6px;font-family:monospace">
+        <button id="session-cd-ok" style="font-size:14px;padding:2px 10px;margin-left:4px;background:#22c55e;color:#fff;border:none;border-radius:4px;cursor:pointer">確定</button>
+        <button id="session-cd-cancel" style="font-size:14px;padding:2px 10px;margin-left:2px;background:#666;color:#fff;border:none;border-radius:4px;cursor:pointer">取消</button>
+      </div>
+    </div>
     <div id="cycle-box" style="height:250px;overflow:auto"><table id="cyclest" class="cycle"></table></div>
   </section>
 </main>
@@ -1248,6 +1256,47 @@ setInterval(poll, 1000);
 // MJPEG response would otherwise keep the page 'loading' forever)
 $('live').src = './debug.jpg?t=' + Date.now();
 window.addEventListener('load', () => setTimeout(startImage, 300));
+
+// ========== Session countdown editor ==========
+(function() {
+  const timeEl = $('session-cd-time');
+  const editEl = $('session-cd-edit');
+  const inputEl = $('session-cd-input');
+  if (!timeEl || !editEl) return;
+  timeEl.onclick = () => {
+    const cur = timeEl.textContent.trim();
+    if (cur === '已結束') inputEl.value = '0:00:00';
+    else inputEl.value = cur;
+    editEl.style.display = '';
+    timeEl.style.display = 'none';
+    inputEl.focus();
+    inputEl.select();
+  };
+  function cancel() { editEl.style.display = 'none'; timeEl.style.display = ''; }
+  $('session-cd-cancel').onclick = cancel;
+  inputEl.onkeydown = e => { if (e.key === 'Escape') cancel(); if (e.key === 'Enter') submit(); };
+  function parseHMS(s) {
+    s = s.trim();
+    const parts = s.split(':').map(Number);
+    if (parts.some(isNaN)) return null;
+    if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
+    if (parts.length === 2) return parts[0]*3600 + parts[1]*60;
+    if (parts.length === 1) return parts[0]*3600;
+    return null;
+  }
+  async function submit() {
+    const secs = parseHMS(inputEl.value);
+    if (secs === null || secs < 0) { inputEl.style.borderColor = '#ef4444'; return; }
+    inputEl.style.borderColor = '#555';
+    try {
+      const r = await fetch('./api/session_time', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({seconds: secs})});
+      const d = await r.json();
+      if (d.ok) cancel();
+      else { inputEl.style.borderColor = '#ef4444'; }
+    } catch(e) { inputEl.style.borderColor = '#ef4444'; }
+  }
+  $('session-cd-ok').onclick = submit;
+})();
 
 // ========== Minimap live tracker ==========
 const MM = {
